@@ -847,7 +847,10 @@ document.addEventListener('DOMContentLoaded', function() {
                     alert(`${failed.length} stock item(s) could not be deleted. Please try again.`);
                 } else {
                     // Preserve filter state and reload
-                    preserveAndReload();
+                    const currentUrl = window.location.href;
+                    console.log('Preserving URL for bulk delete reload:', currentUrl);
+                    sessionStorage.setItem('preserveFilters', currentUrl);
+                    location.reload();
                 }
             })
             .catch(error => {

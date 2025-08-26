@@ -532,7 +532,8 @@
         function preserveAndReload() {
             // Store current filter state in sessionStorage
             const currentUrl = window.location.href;
-            const currentPath = window.location.pathname;
+            
+            console.log('Preserving URL for reload:', currentUrl);
             
             // Store the current URL to restore filters after reload
             sessionStorage.setItem('preserveFilters', currentUrl);
@@ -543,7 +544,10 @@
 
         // Restore filter state after page reload
         function restoreFilterState() {
+            console.log('restoreFilterState called');
             const preservedUrl = sessionStorage.getItem('preserveFilters');
+            console.log('Preserved URL from sessionStorage:', preservedUrl);
+            
             if (preservedUrl) {
                 // Clear the stored URL
                 sessionStorage.removeItem('preserveFilters');
@@ -552,11 +556,31 @@
                 const currentPath = window.location.pathname;
                 const preservedPath = new URL(preservedUrl).pathname;
                 
+                console.log('Current path:', currentPath, 'Preserved path:', preservedPath);
+                
                 if (currentPath === preservedPath) {
                     // We're on the same page, restore the URL state
                     window.history.replaceState({}, '', preservedUrl);
+                    console.log('Restored URL state to:', preservedUrl);
                     
                     // Trigger filter restoration based on current page
+                    if (currentPath === '/stock') {
+                        restoreStockFilters();
+                    } else if (currentPath === '/products') {
+                        restoreProductFilters();
+                    } else if (currentPath === '/warehouses') {
+                        restoreWarehouseFilters();
+                    }
+                }
+            } else {
+                // If no preserved URL, check if there are URL parameters to restore
+                const url = new URL(window.location);
+                const hasParams = url.searchParams.toString().length > 0;
+                
+                console.log('No preserved URL, checking for URL params:', hasParams);
+                
+                if (hasParams) {
+                    const currentPath = window.location.pathname;
                     if (currentPath === '/stock') {
                         restoreStockFilters();
                     } else if (currentPath === '/products') {
@@ -570,16 +594,20 @@
 
         // Restore stock filters
         function restoreStockFilters() {
+            console.log('Restoring stock filters...');
             const url = new URL(window.location.href);
             const searchTerm = url.searchParams.get('search');
             const warehouse = url.searchParams.get('warehouse');
             const status = url.searchParams.get('status');
             const lowStock = url.searchParams.get('lowStock');
             
+            console.log('URL params:', { searchTerm, warehouse, status, lowStock });
+            
             if (searchTerm) {
                 const searchInput = document.getElementById('search-stock');
                 if (searchInput) {
                     searchInput.value = searchTerm;
+                    console.log('Set search input to:', searchTerm);
                 }
             }
             
@@ -587,6 +615,7 @@
                 const warehouseSelect = document.getElementById('filter-warehouse');
                 if (warehouseSelect) {
                     warehouseSelect.value = warehouse;
+                    console.log('Set warehouse filter to:', warehouse);
                 }
             }
             
@@ -594,6 +623,7 @@
                 const statusSelect = document.getElementById('filter-status');
                 if (statusSelect) {
                     statusSelect.value = status;
+                    console.log('Set status filter to:', status);
                 }
             }
             
@@ -601,12 +631,16 @@
                 const lowStockCheckbox = document.getElementById('showLowStock');
                 if (lowStockCheckbox) {
                     lowStockCheckbox.checked = true;
+                    console.log('Set low stock checkbox to true');
                 }
             }
             
             // Re-apply filters
             if (typeof filterStock === 'function') {
+                console.log('Calling filterStock function...');
                 filterStock();
+            } else {
+                console.log('filterStock function not found');
             }
         }
 
