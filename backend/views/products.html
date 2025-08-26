@@ -114,6 +114,9 @@
                         <th class="sortable" data-column="barcode" data-type="text">
                             Barcode <i class="fas fa-sort text-muted"></i>
                         </th>
+                        <th class="sortable" data-column="total_stock" data-type="number">
+                            Total Stock <i class="fas fa-sort text-muted"></i>
+                        </th>
                         <th class="sortable" data-column="batch_tracking" data-type="text">
                             Batch Tracking <i class="fas fa-sort text-muted"></i>
                         </th>
@@ -130,6 +133,7 @@
                         data-sku="{{ product.sku|lower }}" 
                         data-name="{{ product.name|lower }}" 
                         data-description="{{ (product.description or '')|lower }}" 
+                        data-total-stock="{{ product.total_stock }}"
                         data-category="{% if 'widget' in product.name|lower %}widget{% elif 'gadget' in product.name|lower %}gadget{% elif 'tool' in product.name|lower %}tool{% else %}other{% endif %}">
                         <td>
                             <div class="form-check">
@@ -149,6 +153,11 @@
                             {% endif %}
                         </td>
                         <td>{{ product.barcode or 'N/A' }}</td>
+                        <td>
+                            <span class="badge {% if product.total_stock > 0 %}bg-success{% elif product.total_stock == 0 %}bg-danger{% else %}bg-secondary{% endif %}">
+                                <i class="fas fa-boxes me-1"></i>{{ product.total_stock }}
+                            </span>
+                        </td>
                         <td>
                             {% if product.batch_tracked %}
                                 <span class="badge bg-info">
@@ -486,7 +495,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function getCellValue(row, column, dataType) {
         const columnIndex = {
             'sku': 1, 'name': 2, 'description': 3, 'dimensions': 4, 
-            'weight': 5, 'barcode': 6, 'batch_tracking': 7, 'created': 8
+            'weight': 5, 'barcode': 6, 'total_stock': 7, 'batch_tracking': 8, 'created': 9
         };
         
         const cell = row.cells[columnIndex[column]];
@@ -497,6 +506,16 @@ document.addEventListener('DOMContentLoaded', function() {
             if (text === 'N/A' || !text) {
                 return 0;
             }
+            
+            // Special handling for total_stock column (badge with icon)
+            if (column === 'total_stock') {
+                const badge = cell.querySelector('.badge');
+                if (badge) {
+                    const badgeText = badge.textContent.trim();
+                    return parseInt(badgeText) || 0;
+                }
+            }
+            
             return parseFloat(text.replace(/[^\d.-]/g, '')) || 0;
         }
         

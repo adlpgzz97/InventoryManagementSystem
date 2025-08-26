@@ -366,7 +366,17 @@ def products():
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cur.execute("SELECT * FROM products ORDER BY created_at DESC")
+        
+        # Get products with stock totals
+        cur.execute("""
+            SELECT 
+                p.*,
+                COALESCE(SUM(si.qty_available), 0) as total_stock
+            FROM products p
+            LEFT JOIN stock_items si ON p.id = si.product_id
+            GROUP BY p.id, p.sku, p.name, p.description, p.dimensions, p.weight, p.barcode, p.picture_url, p.batch_tracked, p.created_at
+            ORDER BY p.created_at DESC
+        """)
         products_data = cur.fetchall()
         cur.close()
         conn.close()
