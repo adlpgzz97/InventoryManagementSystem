@@ -600,41 +600,43 @@
                 updateAislesDisplay();
             }
             
-            // Quick Setup functionality
-            const applyQuickSetupBtn = document.getElementById('applyQuickSetup');
-            if (applyQuickSetupBtn) {
-                applyQuickSetupBtn.addEventListener('click', function() {
-                    const numAisles = parseInt(document.getElementById('quick_aisles').value) || 3;
-                    const defaultBins = parseInt(document.getElementById('quick_bins').value) || 5;
-                    
-                    if (numAisles < 1 || numAisles > 26) {
-                        alert('Please enter a valid number of aisles (1-26)');
-                        return;
-                    }
-                    
-                    if (defaultBins < 1 || defaultBins > 50) {
-                        alert('Please enter a valid number of bins (1-50)');
-                        return;
-                    }
-                    
-                    // Clear existing aisles
-                    aisles = [];
-                    nextAisleLetter = 'A';
-                    
-                    // Create new aisles
-                    for (let i = 0; i < numAisles; i++) {
-                        const aisleLetter = String.fromCharCode(65 + i); // A, B, C, etc.
-                        aisles.push({
-                            id: Date.now() + i,
-                            name: aisleLetter,
-                            bins: defaultBins
-                        });
-                    }
-                    
-                    nextAisleLetter = String.fromCharCode(65 + numAisles);
-                    updateAislesDisplay();
-                });
-            }
+                         // Quick Setup functionality (only for add mode)
+             if (!isEditMode) {
+                 const applyQuickSetupBtn = document.getElementById('applyQuickSetup');
+                 if (applyQuickSetupBtn) {
+                     applyQuickSetupBtn.addEventListener('click', function() {
+                         const numAisles = parseInt(document.getElementById('quick_aisles').value) || 3;
+                         const defaultBins = parseInt(document.getElementById('quick_bins').value) || 5;
+                         
+                         if (numAisles < 1 || numAisles > 26) {
+                             alert('Please enter a valid number of aisles (1-26)');
+                             return;
+                         }
+                         
+                         if (defaultBins < 1 || defaultBins > 50) {
+                             alert('Please enter a valid number of bins (1-50)');
+                             return;
+                         }
+                         
+                         // Clear existing aisles
+                         aisles = [];
+                         nextAisleLetter = 'A';
+                         
+                         // Create new aisles
+                         for (let i = 0; i < numAisles; i++) {
+                             const aisleLetter = String.fromCharCode(65 + i); // A, B, C, etc.
+                             aisles.push({
+                                 id: Date.now() + i,
+                                 name: aisleLetter,
+                                 bins: defaultBins
+                             });
+                         }
+                         
+                         nextAisleLetter = String.fromCharCode(65 + numAisles);
+                         updateAislesDisplay();
+                     });
+                 }
+             }
             
             // Add Aisle functionality
             const addAisleBtn = document.getElementById('addAisleBtn');
@@ -726,57 +728,44 @@
                 `;
             }
             
-            function attachAisleEventListeners() {
-                // Bin count input change
-                document.querySelectorAll('.bin-count').forEach(input => {
-                    // Remove existing listeners to prevent duplicates
-                    input.removeEventListener('change', handleBinCountChange);
-                    input.addEventListener('change', handleBinCountChange);
-                });
-                
-                // Plus button
-                document.querySelectorAll('.bin-plus').forEach(btn => {
-                    // Remove existing listeners to prevent duplicates
-                    btn.removeEventListener('click', handleBinPlus);
-                    btn.addEventListener('click', handleBinPlus);
-                });
-                
-                // Minus button
-                document.querySelectorAll('.bin-minus').forEach(btn => {
-                    // Remove existing listeners to prevent duplicates
-                    btn.removeEventListener('click', handleBinMinus);
-                    btn.addEventListener('click', handleBinMinus);
-                });
-                
-                // Helper functions for event handlers
-                function handleBinCountChange() {
-                    const aisleId = parseInt(this.dataset.aisleId);
-                    const newValue = parseInt(this.value) || 1;
-                    const aisle = aisles.find(a => a.id === aisleId);
-                    if (aisle) {
-                        aisle.bins = Math.max(1, Math.min(50, newValue));
-                        this.value = aisle.bins;
-                        updateAislesDisplay();
-                    }
-                }
-                
-                function handleBinPlus() {
-                    const aisleId = parseInt(this.dataset.aisleId);
-                    const aisle = aisles.find(a => a.id === aisleId);
-                    if (aisle && aisle.bins < 50) {
-                        aisle.bins++;
-                        updateAislesDisplay();
-                    }
-                }
-                
-                function handleBinMinus() {
-                    const aisleId = parseInt(this.dataset.aisleId);
-                    const aisle = aisles.find(a => a.id === aisleId);
-                    if (aisle && aisle.bins > 1) {
-                        aisle.bins--;
-                        updateAislesDisplay();
-                    }
-                }
+                         function attachAisleEventListeners() {
+                 // Bin count input change
+                 document.querySelectorAll('.bin-count').forEach(input => {
+                     input.addEventListener('change', function() {
+                         const aisleId = parseInt(this.dataset.aisleId);
+                         const newValue = parseInt(this.value) || 1;
+                         const aisle = aisles.find(a => a.id === aisleId);
+                         if (aisle) {
+                             aisle.bins = Math.max(1, Math.min(50, newValue));
+                             this.value = aisle.bins;
+                             updateAislesDisplay();
+                         }
+                     });
+                 });
+                 
+                 // Plus button
+                 document.querySelectorAll('.bin-plus').forEach(btn => {
+                     btn.addEventListener('click', function() {
+                         const aisleId = parseInt(this.dataset.aisleId);
+                         const aisle = aisles.find(a => a.id === aisleId);
+                         if (aisle && aisle.bins < 50) {
+                             aisle.bins++;
+                             updateAislesDisplay();
+                         }
+                     });
+                 });
+                 
+                 // Minus button
+                 document.querySelectorAll('.bin-minus').forEach(btn => {
+                     btn.addEventListener('click', function() {
+                         const aisleId = parseInt(this.dataset.aisleId);
+                         const aisle = aisles.find(a => a.id === aisleId);
+                         if (aisle && aisle.bins > 1) {
+                             aisle.bins--;
+                             updateAislesDisplay();
+                         }
+                     });
+                 });
                 
                 // Remove aisle button
                 document.querySelectorAll('.remove-aisle-btn').forEach(btn => {
