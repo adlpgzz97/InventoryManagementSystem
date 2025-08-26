@@ -469,6 +469,32 @@ document.addEventListener('DOMContentLoaded', function() {
         const statusTerm = statusFilter ? statusFilter.value : '';
         const lowStockOnly = lowStockToggle ? lowStockToggle.checked : false;
 
+        // Update URL with current filter state
+        const url = new URL(window.location);
+        if (searchTerm) {
+            url.searchParams.set('search', searchTerm);
+        } else {
+            url.searchParams.delete('search');
+        }
+        if (warehouseTerm) {
+            url.searchParams.set('warehouse', warehouseTerm);
+        } else {
+            url.searchParams.delete('warehouse');
+        }
+        if (statusTerm) {
+            url.searchParams.set('status', statusTerm);
+        } else {
+            url.searchParams.delete('status');
+        }
+        if (lowStockOnly) {
+            url.searchParams.set('lowStock', 'true');
+        } else {
+            url.searchParams.delete('lowStock');
+        }
+        
+        // Update URL without reloading the page
+        window.history.replaceState({}, '', url);
+
         stockFilteredRows = Array.from(stockRows).filter(row => {
             const productName = row.getAttribute('data-product-name') || '';
             const sku = row.getAttribute('data-sku') || '';
@@ -590,6 +616,15 @@ document.addEventListener('DOMContentLoaded', function() {
             if (warehouseFilter) warehouseFilter.value = '';
             if (statusFilter) statusFilter.value = '';
             if (lowStockToggle) lowStockToggle.checked = false;
+            
+            // Clear URL parameters
+            const url = new URL(window.location);
+            url.searchParams.delete('search');
+            url.searchParams.delete('warehouse');
+            url.searchParams.delete('status');
+            url.searchParams.delete('lowStock');
+            window.history.replaceState({}, '', url);
+            
             filterStock();
         });
     }
@@ -811,7 +846,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (failed.length > 0) {
                     alert(`${failed.length} stock item(s) could not be deleted. Please try again.`);
                 } else {
-                    location.reload();
+                    // Preserve filter state and reload
+                    preserveAndReload();
                 }
             })
             .catch(error => {

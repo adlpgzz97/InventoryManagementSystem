@@ -12,6 +12,7 @@ import bcrypt
 import requests
 import os
 import json
+import uuid
 from datetime import datetime
 
 app = Flask(__name__, template_folder='views')
@@ -1180,7 +1181,11 @@ def edit_warehouse(warehouse_id):
                     # Remove locations that are no longer needed
                     locations_to_remove = current_location_ids - new_location_ids
                     if locations_to_remove:
-                        cur.execute("DELETE FROM locations WHERE id = ANY(%s)", (list(locations_to_remove),))
+                        # Use a different approach for UUID deletion - convert to proper UUID array
+                        location_ids_list = list(locations_to_remove)
+                        # Create a proper UUID array for PostgreSQL
+                        uuid_array = "ARRAY[" + ",".join([f"'{loc_id}'::uuid" for loc_id in location_ids_list]) + "]"
+                        cur.execute(f"DELETE FROM locations WHERE id = ANY({uuid_array})")
                     
                     # Add new locations based on aisle configuration
                     for aisle in aisles:
@@ -1276,8 +1281,20 @@ def delete_product(product_id):
         return redirect(url_for('products'))
     
     try:
-        response = postgrest_request(f'products?id=eq.{product_id}', 'DELETE')
-        flash('Product deleted successfully!', 'success')
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Delete the product
+        cur.execute("DELETE FROM products WHERE id = %s", (product_id,))
+        
+        if cur.rowcount == 0:
+            flash('Product not found.', 'error')
+        else:
+            conn.commit()
+            flash('Product deleted successfully!', 'success')
+        
+        cur.close()
+        conn.close()
     except Exception as e:
         flash(f'Error deleting product: {e}', 'error')
     
@@ -1292,8 +1309,20 @@ def delete_stock(stock_id):
         return redirect(url_for('stock'))
     
     try:
-        response = postgrest_request(f'stock_items?id=eq.{stock_id}', 'DELETE')
-        flash('Stock item deleted successfully!', 'success')
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Delete the stock item
+        cur.execute("DELETE FROM stock_items WHERE id = %s", (stock_id,))
+        
+        if cur.rowcount == 0:
+            flash('Stock item not found.', 'error')
+        else:
+            conn.commit()
+            flash('Stock item deleted successfully!', 'success')
+        
+        cur.close()
+        conn.close()
     except Exception as e:
         flash(f'Error deleting stock item: {e}', 'error')
     
@@ -1308,8 +1337,35 @@ def delete_warehouse(warehouse_id):
         return redirect(url_for('warehouses'))
     
     try:
-        response = postgrest_request(f'warehouses?id=eq.{warehouse_id}', 'DELETE')
-        flash('Warehouse deleted successfully!', 'success')
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Check if warehouse has any stock items
+        cur.execute("""
+            SELECT COUNT(*) FROM stock_items si
+            JOIN locations l ON si.location_id = l.id
+            WHERE l.warehouse_id = %s
+        """, (warehouse_id,))
+        
+        stock_count = cur.fetchone()[0]
+        
+        if stock_count > 0:
+            flash(f'Cannot delete warehouse: {stock_count} stock items are still located in this warehouse. Please move or delete the stock items first.', 'error')
+        else:
+            # Delete all locations first (due to foreign key constraints)
+            cur.execute("DELETE FROM locations WHERE warehouse_id = %s", (warehouse_id,))
+            
+            # Delete the warehouse
+            cur.execute("DELETE FROM warehouses WHERE id = %s", (warehouse_id,))
+            
+            if cur.rowcount == 0:
+                flash('Warehouse not found.', 'error')
+            else:
+                conn.commit()
+                flash('Warehouse deleted successfully!', 'success')
+        
+        cur.close()
+        conn.close()
     except Exception as e:
         flash(f'Error deleting warehouse: {e}', 'error')
     
