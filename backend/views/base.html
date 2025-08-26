@@ -532,10 +532,14 @@
             
             // If in edit mode, load existing locations
             if (isEditMode) {
+                console.log('Edit mode detected, looking for existing locations...');
                 const existingLocationsInput = document.getElementById('existingLocations');
+                console.log('Existing locations input found:', existingLocationsInput);
                 if (existingLocationsInput && existingLocationsInput.value) {
+                    console.log('Existing locations value:', existingLocationsInput.value);
                     try {
                         const existingLocations = JSON.parse(existingLocationsInput.value);
+                        console.log('Parsed existing locations:', existingLocations);
                         
                         // Group locations by aisle
                         const aisleGroups = {};
@@ -552,13 +556,15 @@
                             const locations = aisleGroups[aisle];
                             const bins = Math.max(...locations.map(loc => parseInt(loc.bin)));
                             
-                            aisles.push({
+                            const aisleObj = {
                                 id: Date.now() + Math.random(),
                                 name: aisle,
                                 bins: bins,
                                 existing: true,
                                 locationIds: locations.map(loc => loc.id)
-                            });
+                            };
+                            aisles.push(aisleObj);
+                            console.log('Created aisle:', aisleObj);
                         });
                         
                         // Set next aisle letter

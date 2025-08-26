@@ -69,6 +69,12 @@
     <input type="hidden" id="createLocations" name="create_locations" value="true">
     <input type="hidden" id="existingLocations" name="existing_locations" value="{{ warehouse.locations|tojson|safe }}">
     
+    <!-- Debug info (remove in production) -->
+    <script>
+        console.log('Warehouse data:', {{ warehouse|tojson|safe }});
+        console.log('Locations data:', {{ warehouse.locations|tojson|safe }});
+    </script>
+    
     <div class="d-flex justify-content-between">
         <button type="button" class="btn btn-danger delete-btn" 
                 data-type="warehouse" 
