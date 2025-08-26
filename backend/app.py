@@ -995,39 +995,88 @@ def edit_product(product_id):
     try:
         if request.method == 'POST':
             # Handle form submission
-            data = {
-                'sku': request.form.get('sku'),
-                'name': request.form.get('name'),
-                'description': request.form.get('description') or None,
-                'dimensions': request.form.get('dimensions') or None,
-                'weight': float(request.form.get('weight')) if request.form.get('weight') else None,
-                'barcode': request.form.get('barcode') or None,
-                'picture_url': request.form.get('picture_url') or None,
-                'batch_tracked': request.form.get('batch_tracked') == 'on'
-            }
-            
-            # Update via PostgREST
-            response = postgrest_request(f'products?id=eq.{product_id}', 'PATCH', data)
-            
-            if is_modal:
-                return '<div class="alert alert-success">Product updated successfully!</div>'
-            else:
-                flash('Product updated successfully!', 'success')
-                return redirect(url_for('products'))
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                
+                # Update product using direct database query
+                cur.execute("""
+                    UPDATE products 
+                    SET sku = %s, name = %s, description = %s, dimensions = %s, 
+                        weight = %s, barcode = %s, picture_url = %s, batch_tracked = %s
+                    WHERE id = %s
+                """, (
+                    request.form.get('sku'),
+                    request.form.get('name'),
+                    request.form.get('description') or None,
+                    request.form.get('dimensions') or None,
+                    float(request.form.get('weight')) if request.form.get('weight') else None,
+                    request.form.get('barcode') or None,
+                    request.form.get('picture_url') or None,
+                    request.form.get('batch_tracked') == 'on',
+                    product_id
+                ))
+                
+                conn.commit()
+                cur.close()
+                conn.close()
+                
+                if is_modal:
+                    return '<div class="alert alert-success">Product updated successfully!</div>'
+                else:
+                    flash('Product updated successfully!', 'success')
+                    return redirect(url_for('products'))
+                    
+            except Exception as e:
+                error_msg = f'Error updating product: {e}'
+                if is_modal:
+                    return f'<div class="alert alert-danger">{error_msg}</div>'
+                else:
+                    flash(error_msg, 'error')
+                    return redirect(url_for('products'))
         
         else:
             # GET request - show form
-            product_data = postgrest_request(f'products?id=eq.{product_id}&select=*')
-            if not product_data:
-                flash('Product not found.', 'error')
+            try:
+                conn = get_db_connection()
+                cur = conn.cursor()
+                
+                # Fetch product data using direct database query
+                cur.execute("""
+                    SELECT id, sku, name, description, dimensions, weight, barcode, picture_url, batch_tracked
+                    FROM products 
+                    WHERE id = %s
+                """, (product_id,))
+                
+                product_row = cur.fetchone()
+                if not product_row:
+                    flash('Product not found.', 'error')
+                    return redirect(url_for('products'))
+                
+                # Convert to dictionary format
+                product = {
+                    'id': product_row[0],
+                    'sku': product_row[1],
+                    'name': product_row[2],
+                    'description': product_row[3],
+                    'dimensions': product_row[4],
+                    'weight': product_row[5],
+                    'barcode': product_row[6],
+                    'picture_url': product_row[7],
+                    'batch_tracked': product_row[8]
+                }
+                
+                cur.close()
+                conn.close()
+                
+                if is_modal:
+                    return render_template('edit_product_modal.html', product=product)
+                else:
+                    return render_template('edit_product.html', product=product)
+                    
+            except Exception as e:
+                flash(f'Error loading product: {e}', 'error')
                 return redirect(url_for('products'))
-            
-            product = product_data[0]
-            
-            if is_modal:
-                return render_template('edit_product_modal.html', product=product)
-            else:
-                return render_template('edit_product.html', product=product)
                 
     except Exception as e:
         error_msg = f'Error updating product: {e}'
@@ -1291,7 +1340,7 @@ def delete_product(product_id):
             flash('Product not found.', 'error')
         else:
             conn.commit()
-            flash('Product deleted successfully!', 'success')
+        flash('Product deleted successfully!', 'success')
         
         cur.close()
         conn.close()
@@ -1319,7 +1368,7 @@ def delete_stock(stock_id):
             flash('Stock item not found.', 'error')
         else:
             conn.commit()
-            flash('Stock item deleted successfully!', 'success')
+        flash('Stock item deleted successfully!', 'success')
         
         cur.close()
         conn.close()
@@ -1362,7 +1411,7 @@ def delete_warehouse(warehouse_id):
                 flash('Warehouse not found.', 'error')
             else:
                 conn.commit()
-                flash('Warehouse deleted successfully!', 'success')
+        flash('Warehouse deleted successfully!', 'success')
         
         cur.close()
         conn.close()
@@ -1528,12 +1577,12 @@ def add_warehouse():
                 except (json.JSONDecodeError, KeyError, TypeError) as e:
                     print(f"Error parsing aisles data: {e}")
                     # Fallback to old format if new format fails
-                    sample_aisles = request.form.get('sample_aisles', 'A,B').split(',')
-                    sample_bins = int(request.form.get('sample_bins', 3))
-                    
-                    for aisle in sample_aisles:
-                        aisle = aisle.strip()
-                        if aisle:
+                sample_aisles = request.form.get('sample_aisles', 'A,B').split(',')
+                sample_bins = int(request.form.get('sample_bins', 3))
+                
+                for aisle in sample_aisles:
+                    aisle = aisle.strip()
+                    if aisle:
                             for bin_num in range(1, min(sample_bins + 1, 21)):
                                 cur.execute("INSERT INTO locations (warehouse_id, aisle, bin) VALUES (%s, %s, %s)", 
                                            (warehouse_id, aisle, str(bin_num)))
