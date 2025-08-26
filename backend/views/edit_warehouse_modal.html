@@ -13,33 +13,61 @@
         <label for="address" class="form-label">Address</label>
         <textarea class="form-control" id="address" name="address" rows="3" 
                   placeholder="Enter warehouse address">{{ warehouse.address or '' }}</textarea>
+        <small class="form-text text-muted">Full address including street, city, state, postal code</small>
     </div>
     
-    {% if warehouse.locations %}
-    <div class="mb-3">
-        <label class="form-label">Current Locations</label>
-        <div class="border rounded p-3" style="max-height: 200px; overflow-y: auto;">
+    <!-- Quick Setup Section -->
+    <div class="card mb-3">
+        <div class="card-header">
+            <h6 class="mb-0"><i class="fas fa-magic me-2"></i>Quick Setup</h6>
+        </div>
+        <div class="card-body">
             <div class="row">
-                {% for location in warehouse.locations %}
-                <div class="col-6 col-md-4 col-lg-3 mb-2">
-                    <span class="badge bg-light text-dark border">
-                        {{ location.aisle }}{{ location.bin }}
-                    </span>
+                <div class="col-md-6">
+                    <label for="quick_aisles" class="form-label">Number of Aisles</label>
+                    <input type="number" min="1" max="26" class="form-control" id="quick_aisles" 
+                           placeholder="e.g., 5" value="3">
+                    <small class="form-text text-muted">Will create A, B, C, etc.</small>
                 </div>
-                {% endfor %}
+                <div class="col-md-6">
+                    <label for="quick_bins" class="form-label">Default Bins per Aisle</label>
+                    <input type="number" min="1" max="50" class="form-control" id="quick_bins" 
+                           placeholder="e.g., 10" value="5">
+                    <small class="form-text text-muted">Number of bins for each aisle</small>
+                </div>
+            </div>
+            <div class="mt-3">
+                <button type="button" class="btn btn-outline-primary btn-sm" id="applyQuickSetup">
+                    <i class="fas fa-play me-1"></i>Apply Quick Setup
+                </button>
+                <small class="text-muted ms-2">This will overwrite the current aisle list</small>
             </div>
         </div>
-        <small class="form-text text-muted">
-            Total locations: {{ warehouse.locations|length }}
-        </small>
     </div>
-    {% endif %}
     
-    <div class="alert alert-warning">
-        <i class="fas fa-exclamation-triangle me-2"></i>
-        <strong>Note:</strong> Location management will be available in Phase 2. 
-        You can currently only edit warehouse name and address.
+    <!-- Dynamic Aisles Section -->
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h6 class="mb-0"><i class="fas fa-warehouse me-2"></i>Storage Aisles & Bins</h6>
+            <button type="button" class="btn btn-success btn-sm" id="addAisleBtn">
+                <i class="fas fa-plus me-1"></i>Add Aisle
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="aislesList">
+                <!-- Aisles will be dynamically added here -->
+            </div>
+            <div id="noAislesMessage" class="text-center text-muted py-4">
+                <i class="fas fa-warehouse fa-2x mb-2"></i>
+                <p>No aisles configured yet. Use Quick Setup or click "Add Aisle" to get started.</p>
+            </div>
+        </div>
     </div>
+    
+    <!-- Hidden inputs for form submission -->
+    <input type="hidden" id="aislesData" name="aisles_data" value="">
+    <input type="hidden" id="createLocations" name="create_locations" value="true">
+    <input type="hidden" id="existingLocations" name="existing_locations" value="{{ warehouse.locations|tojson|safe }}">
     
     <div class="d-flex justify-content-between">
         <button type="button" class="btn btn-danger delete-btn" 
@@ -48,10 +76,114 @@
                 data-name="{{ warehouse.name }}">
             <i class="fas fa-trash me-2"></i>Delete Warehouse
         </button>
-        <button type="submit" class="btn btn-primary">
-            <i class="fas fa-save me-2"></i>Save Changes
-        </button>
+        <div>
+            <button type="button" class="btn btn-secondary me-2" data-bs-dismiss="modal">
+                <i class="fas fa-times me-2"></i>Cancel
+            </button>
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-save me-2"></i>Save Changes
+            </button>
+        </div>
     </div>
 </form>
 
 <p class="mt-2 text-muted"><span class="text-danger">*</span> Required field</p>
+
+<style>
+.aisle-row {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 10px;
+    transition: all 0.2s ease;
+}
+
+.aisle-row:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.aisle-row .aisle-name {
+    font-weight: 600;
+    color: #495057;
+    min-width: 60px;
+}
+
+.bin-counter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bin-counter input {
+    text-align: center;
+    width: 60px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+.bin-counter .btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+
+.remove-aisle-btn {
+    color: #dc3545;
+    border: 1px solid #dc3545;
+    background: transparent;
+}
+
+.remove-aisle-btn:hover {
+    background: #dc3545;
+    color: white;
+}
+
+.remove-aisle-btn.disabled {
+    color: #6c757d;
+    border-color: #6c757d;
+    background: #f8f9fa;
+    cursor: not-allowed;
+}
+
+.remove-aisle-btn.disabled:hover {
+    background: #f8f9fa;
+    color: #6c757d;
+}
+
+.aisle-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#noAislesMessage {
+    border: 2px dashed #dee2e6;
+    border-radius: 8px;
+    background: #f8f9fa;
+}
+
+.occupied-location {
+    background: #fff3cd;
+    border-color: #ffeaa7;
+}
+
+.occupied-location .aisle-name {
+    color: #856404;
+}
+
+.occupied-badge {
+    background: #dc3545;
+    color: white;
+    font-size: 0.7rem;
+    padding: 2px 6px;
+    border-radius: 10px;
+    margin-left: 8px;
+}
+</style>

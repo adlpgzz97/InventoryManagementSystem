@@ -425,6 +425,11 @@
                             submitModalForm(form, modal);
                         });
                     }
+                    
+                    // Initialize warehouse-specific functionality if it's a warehouse modal
+                    if (itemType === 'warehouse') {
+                        initializeWarehouseModal(true); // true indicates edit mode
+                    }
                 })
                 .catch(error => {
                     editModalBody.innerHTML = `<div class="alert alert-danger">Error loading form: ${error.message}</div>`;
@@ -520,12 +525,70 @@
         }
 
         // Initialize warehouse modal functionality
-        function initializeWarehouseModal() {
+        function initializeWarehouseModal(isEditMode = false) {
             let aisles = [];
             let nextAisleLetter = 'A';
+            let occupiedLocations = new Set();
             
-            // Initialize the interface
-            updateAislesDisplay();
+            // If in edit mode, load existing locations
+            if (isEditMode) {
+                const existingLocationsInput = document.getElementById('existingLocations');
+                if (existingLocationsInput && existingLocationsInput.value) {
+                    try {
+                        const existingLocations = JSON.parse(existingLocationsInput.value);
+                        
+                        // Group locations by aisle
+                        const aisleGroups = {};
+                        existingLocations.forEach(location => {
+                            const aisle = location.aisle;
+                            if (!aisleGroups[aisle]) {
+                                aisleGroups[aisle] = [];
+                            }
+                            aisleGroups[aisle].push(location);
+                        });
+                        
+                        // Convert to aisles array
+                        Object.keys(aisleGroups).sort().forEach(aisle => {
+                            const locations = aisleGroups[aisle];
+                            const bins = Math.max(...locations.map(loc => parseInt(loc.bin)));
+                            
+                            aisles.push({
+                                id: Date.now() + Math.random(),
+                                name: aisle,
+                                bins: bins,
+                                existing: true,
+                                locationIds: locations.map(loc => loc.id)
+                            });
+                        });
+                        
+                        // Set next aisle letter
+                        if (aisles.length > 0) {
+                            const lastAisle = aisles[aisles.length - 1].name;
+                            nextAisleLetter = String.fromCharCode(lastAisle.charCodeAt(0) + 1);
+                        }
+                        
+                        // Get occupied locations for validation
+                        fetch(`/api/warehouse/${document.querySelector('form').action.split('/').pop().split('?')[0]}/occupied-locations`)
+                            .then(response => response.json())
+                            .then(data => {
+                                occupiedLocations = new Set(data.occupied_locations || []);
+                                updateAislesDisplay();
+                            })
+                            .catch(error => {
+                                console.error('Error fetching occupied locations:', error);
+                                updateAislesDisplay();
+                            });
+                    } catch (error) {
+                        console.error('Error parsing existing locations:', error);
+                        updateAislesDisplay();
+                    }
+                } else {
+                    updateAislesDisplay();
+                }
+            } else {
+                // Initialize the interface for add mode
+                updateAislesDisplay();
+            }
             
             // Quick Setup functionality
             const applyQuickSetupBtn = document.getElementById('applyQuickSetup');
@@ -606,11 +669,23 @@
             }
             
             function createAisleRow(aisle) {
+                // Check if this aisle has occupied locations
+                const hasOccupiedLocations = aisle.existing && aisle.locationIds && 
+                    Array.from(occupiedLocations).some(occupied => 
+                        aisle.locationIds.includes(parseInt(occupied))
+                    );
+                
+                const rowClass = hasOccupiedLocations ? 'aisle-row occupied-location' : 'aisle-row';
+                const removeBtnClass = hasOccupiedLocations ? 'btn btn-sm remove-aisle-btn disabled' : 'btn btn-sm remove-aisle-btn';
+                const removeBtnDisabled = hasOccupiedLocations ? 'disabled' : '';
+                const occupiedBadge = hasOccupiedLocations ? '<span class="occupied-badge">Occupied</span>' : '';
+                
                 return `
-                    <div class="aisle-row" data-aisle-id="${aisle.id}">
+                    <div class="${rowClass}" data-aisle-id="${aisle.id}">
                         <div class="row align-items-center">
                             <div class="col-md-3">
                                 <span class="aisle-name">Aisle ${aisle.name}</span>
+                                ${occupiedBadge}
                             </div>
                             <div class="col-md-6">
                                 <div class="bin-counter">
@@ -630,8 +705,8 @@
                             </div>
                             <div class="col-md-3">
                                 <div class="aisle-actions">
-                                    <button type="button" class="btn btn-sm remove-aisle-btn" 
-                                            data-aisle-id="${aisle.id}">
+                                    <button type="button" class="${removeBtnClass}" 
+                                            data-aisle-id="${aisle.id}" ${removeBtnDisabled}>
                                         <i class="fas fa-trash"></i>
                                     </button>
                                 </div>
@@ -683,10 +758,27 @@
                 // Remove aisle button
                 document.querySelectorAll('.remove-aisle-btn').forEach(btn => {
                     btn.addEventListener('click', function() {
+                        if (this.disabled) {
+                            return; // Don't allow removal of occupied aisles
+                        }
+                        
                         const aisleId = parseInt(this.dataset.aisleId);
                         const aisleIndex = aisles.findIndex(a => a.id === aisleId);
                         if (aisleIndex !== -1) {
                             const removedAisle = aisles[aisleIndex];
+                            
+                            // Check if this aisle has occupied locations (for edit mode)
+                            if (isEditMode && removedAisle.existing && removedAisle.locationIds) {
+                                const hasOccupiedLocations = Array.from(occupiedLocations).some(occupied => 
+                                    removedAisle.locationIds.includes(parseInt(occupied))
+                                );
+                                
+                                if (hasOccupiedLocations) {
+                                    alert(`Cannot remove Aisle ${removedAisle.name} because it contains occupied locations. Please move or remove the stock items first.`);
+                                    return;
+                                }
+                            }
+                            
                             aisles.splice(aisleIndex, 1);
                             
                             // Update next aisle letter if we removed the last one
@@ -701,7 +793,7 @@
             }
             
             // Form submission validation
-            const form = document.getElementById('addWarehouseForm');
+            const form = document.getElementById('addWarehouseForm') || document.getElementById('editWarehouseForm');
             if (form) {
                 form.addEventListener('submit', function(e) {
                     if (aisles.length === 0) {
@@ -716,6 +808,41 @@
                         e.preventDefault();
                         alert('Please enter a warehouse name.');
                         return;
+                    }
+                    
+                    // For edit mode, check if any occupied locations are being removed
+                    if (isEditMode) {
+                        const existingLocationsInput = document.getElementById('existingLocations');
+                        if (existingLocationsInput && existingLocationsInput.value) {
+                            try {
+                                const existingLocations = JSON.parse(existingLocationsInput.value);
+                                const existingLocationIds = new Set(existingLocations.map(loc => loc.id));
+                                
+                                // Get all location IDs from current aisles
+                                const currentLocationIds = new Set();
+                                aisles.forEach(aisle => {
+                                    if (aisle.existing && aisle.locationIds) {
+                                        aisle.locationIds.forEach(id => currentLocationIds.add(id));
+                                    }
+                                });
+                                
+                                // Find removed location IDs
+                                const removedLocationIds = Array.from(existingLocationIds).filter(id => !currentLocationIds.has(id));
+                                
+                                // Check if any removed locations are occupied
+                                const occupiedRemovedLocations = removedLocationIds.filter(id => 
+                                    Array.from(occupiedLocations).includes(id.toString())
+                                );
+                                
+                                if (occupiedRemovedLocations.length > 0) {
+                                    e.preventDefault();
+                                    alert('Cannot remove occupied locations. Please move or remove the stock items first.');
+                                    return;
+                                }
+                            } catch (error) {
+                                console.error('Error validating occupied locations:', error);
+                            }
+                        }
                     }
                 });
             }

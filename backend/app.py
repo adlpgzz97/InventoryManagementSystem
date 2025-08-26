@@ -825,6 +825,33 @@ def api_status():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/api/warehouse/<warehouse_id>/occupied-locations', methods=['GET'])
+def api_warehouse_occupied_locations(warehouse_id):
+    """API endpoint to get occupied locations for a warehouse"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Get all location IDs that have stock items
+        cur.execute("""
+            SELECT DISTINCT l.id 
+            FROM locations l
+            JOIN stock_items si ON l.id = si.location_id
+            WHERE l.warehouse_id = %s AND si.qty_available > 0
+        """, (warehouse_id,))
+        
+        occupied_locations = [str(row[0]) for row in cur.fetchall()]
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'warehouse_id': warehouse_id,
+            'occupied_locations': occupied_locations
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 def get_database_schema():
     """Get complete database schema information"""
     
@@ -1094,14 +1121,103 @@ def edit_warehouse(warehouse_id):
             # Handle form submission
             name = request.form.get('name')
             address = request.form.get('address') or None
+            aisles_data = request.form.get('aisles_data')
             
-            # Update via direct database query
+            # Validate occupied locations before making changes
             conn = get_db_connection()
             cur = conn.cursor()
             
-            cur.execute("UPDATE warehouses SET name = %s, address = %s WHERE id = %s", 
-                       (name, address, warehouse_id))
-            conn.commit()
+            # Get current locations
+            cur.execute("SELECT id, aisle, bin FROM locations WHERE warehouse_id = %s", (warehouse_id,))
+            current_locations = cur.fetchall()
+            current_location_ids = {loc[0] for loc in current_locations}
+            
+            # Get occupied locations
+            cur.execute("""
+                SELECT DISTINCT l.id 
+                FROM locations l
+                JOIN stock_items si ON l.id = si.location_id
+                WHERE l.warehouse_id = %s AND si.qty_available > 0
+            """, (warehouse_id,))
+            occupied_location_ids = {row[0] for row in cur.fetchall()}
+            
+            # Parse new aisle configuration
+            if aisles_data:
+                try:
+                    aisles = json.loads(aisles_data)
+                    
+                    # Calculate new location IDs based on aisle configuration
+                    new_location_ids = set()
+                    for aisle in aisles:
+                        if aisle.get('existing') and aisle.get('locationIds'):
+                            new_location_ids.update(aisle['locationIds'])
+                    
+                    # Find locations that will be removed
+                    removed_location_ids = current_location_ids - new_location_ids
+                    
+                    # Check if any removed locations are occupied
+                    occupied_removed = removed_location_ids & occupied_location_ids
+                    if occupied_removed:
+                        # Get location details for error message
+                        cur.execute("SELECT aisle, bin FROM locations WHERE id = ANY(%s)", (list(occupied_removed),))
+                        occupied_locations = cur.fetchall()
+                        location_names = [f"{loc[0]}{loc[1]}" for loc in occupied_locations]
+                        
+                        error_msg = f"Cannot remove occupied locations: {', '.join(location_names)}. Please move or remove the stock items first."
+                        cur.close()
+                        conn.close()
+                        
+                        if is_modal:
+                            return f'<div class="alert alert-danger">{error_msg}</div>'
+                        else:
+                            flash(error_msg, 'error')
+                            return redirect(url_for('warehouses'))
+                    
+                    # Update warehouse name and address
+                    cur.execute("UPDATE warehouses SET name = %s, address = %s WHERE id = %s", 
+                               (name, address, warehouse_id))
+                    
+                    # Remove locations that are no longer needed
+                    locations_to_remove = current_location_ids - new_location_ids
+                    if locations_to_remove:
+                        cur.execute("DELETE FROM locations WHERE id = ANY(%s)", (list(locations_to_remove),))
+                    
+                    # Add new locations based on aisle configuration
+                    for aisle in aisles:
+                        aisle_name = aisle['name']
+                        bin_count = aisle['bins']
+                        
+                        # Check if this aisle already exists
+                        existing_bins = []
+                        if aisle.get('existing'):
+                            cur.execute("SELECT bin FROM locations WHERE warehouse_id = %s AND aisle = %s", 
+                                       (warehouse_id, aisle_name))
+                            existing_bins = [row[0] for row in cur.fetchall()]
+                        
+                        # Add missing bins
+                        for bin_num in range(1, bin_count + 1):
+                            if str(bin_num) not in existing_bins:
+                                cur.execute("INSERT INTO locations (warehouse_id, aisle, bin) VALUES (%s, %s, %s)", 
+                                           (warehouse_id, aisle_name, str(bin_num)))
+                    
+                    conn.commit()
+                    
+                except (json.JSONDecodeError, KeyError, TypeError) as e:
+                    error_msg = f"Error parsing aisle data: {e}"
+                    cur.close()
+                    conn.close()
+                    
+                    if is_modal:
+                        return f'<div class="alert alert-danger">{error_msg}</div>'
+                    else:
+                        flash(error_msg, 'error')
+                        return redirect(url_for('warehouses'))
+            else:
+                # Just update name and address if no aisle data provided
+                cur.execute("UPDATE warehouses SET name = %s, address = %s WHERE id = %s", 
+                           (name, address, warehouse_id))
+                conn.commit()
+            
             cur.close()
             conn.close()
             
