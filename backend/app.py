@@ -16,6 +16,69 @@ from datetime import datetime
 app = Flask(__name__, template_folder='views')
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
+# Custom Jinja2 filter to group locations into ranges
+@app.template_filter('group_locations')
+def group_locations(locations):
+    """
+    Group consecutive locations into ranges.
+    Example: [A1, A2, A3, A4, A5, B1, B2, B3, B4, C1, C2] 
+    becomes: ['A1-A5', 'B1-B4', 'C1-C2']
+    """
+    if not locations:
+        return []
+    
+    # Sort locations by aisle and bin
+    sorted_locations = sorted(locations, key=lambda x: (x['aisle'], int(x['bin']) if x['bin'].isdigit() else x['bin']))
+    
+    ranges = []
+    current_range = None
+    
+    for location in sorted_locations:
+        aisle = location['aisle']
+        bin_num = location['bin']
+        
+        if current_range is None:
+            # Start new range
+            current_range = {'aisle': aisle, 'start': bin_num, 'end': bin_num}
+        elif current_range['aisle'] == aisle:
+            # Same aisle, check if consecutive
+            try:
+                current_bin = int(bin_num)
+                end_bin = int(current_range['end'])
+                if current_bin == end_bin + 1:
+                    # Consecutive, extend range
+                    current_range['end'] = bin_num
+                else:
+                    # Not consecutive, finish current range and start new one
+                    if current_range['start'] == current_range['end']:
+                        ranges.append(f"{current_range['aisle']}{current_range['start']}")
+                    else:
+                        ranges.append(f"{current_range['aisle']}{current_range['start']}-{current_range['end']}")
+                    current_range = {'aisle': aisle, 'start': bin_num, 'end': bin_num}
+            except ValueError:
+                # Non-numeric bin, treat as separate
+                if current_range['start'] == current_range['end']:
+                    ranges.append(f"{current_range['aisle']}{current_range['start']}")
+                else:
+                    ranges.append(f"{current_range['aisle']}{current_range['start']}-{current_range['end']}")
+                current_range = {'aisle': aisle, 'start': bin_num, 'end': bin_num}
+        else:
+            # Different aisle, finish current range and start new one
+            if current_range['start'] == current_range['end']:
+                ranges.append(f"{current_range['aisle']}{current_range['start']}")
+            else:
+                ranges.append(f"{current_range['aisle']}{current_range['start']}-{current_range['end']}")
+            current_range = {'aisle': aisle, 'start': bin_num, 'end': bin_num}
+    
+    # Add the last range
+    if current_range:
+        if current_range['start'] == current_range['end']:
+            ranges.append(f"{current_range['aisle']}{current_range['start']}")
+        else:
+            ranges.append(f"{current_range['aisle']}{current_range['start']}-{current_range['end']}")
+    
+    return ranges
+
 # Database configuration
 DB_CONFIG = {
     'host': os.environ.get('DB_HOST', 'localhost'),
