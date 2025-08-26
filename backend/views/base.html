@@ -567,16 +567,19 @@
                             nextAisleLetter = String.fromCharCode(lastAisle.charCodeAt(0) + 1);
                         }
                         
-                        // Get occupied locations for validation
+                        // Display aisles immediately after parsing
+                        updateAislesDisplay();
+                        
+                        // Get occupied locations for validation (in background)
                         fetch(`/api/warehouse/${document.querySelector('form').action.split('/').pop().split('?')[0]}/occupied-locations`)
                             .then(response => response.json())
                             .then(data => {
                                 occupiedLocations = new Set(data.occupied_locations || []);
-                                updateAislesDisplay();
+                                updateAislesDisplay(); // Update again with occupied info
                             })
                             .catch(error => {
                                 console.error('Error fetching occupied locations:', error);
-                                updateAislesDisplay();
+                                // Don't call updateAislesDisplay() here since it's already been called
                             });
                     } catch (error) {
                         console.error('Error parsing existing locations:', error);
