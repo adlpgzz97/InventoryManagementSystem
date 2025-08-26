@@ -1091,13 +1091,18 @@ def edit_warehouse(warehouse_id):
     try:
         if request.method == 'POST':
             # Handle form submission
-            data = {
-                'name': request.form.get('name'),
-                'address': request.form.get('address') or None
-            }
+            name = request.form.get('name')
+            address = request.form.get('address') or None
             
-            # Update via PostgREST
-            response = postgrest_request(f'warehouses?id=eq.{warehouse_id}', 'PATCH', data)
+            # Update via direct database query
+            conn = get_db_connection()
+            cur = conn.cursor()
+            
+            cur.execute("UPDATE warehouses SET name = %s, address = %s WHERE id = %s", 
+                       (name, address, warehouse_id))
+            conn.commit()
+            cur.close()
+            conn.close()
             
             if is_modal:
                 return '<div class="alert alert-success">Warehouse updated successfully!</div>'
@@ -1107,13 +1112,29 @@ def edit_warehouse(warehouse_id):
         
         else:
             # GET request - show form
-            warehouse_data = postgrest_request(f'warehouses?id=eq.{warehouse_id}&select=*,locations(*)')
+            # Use direct database query instead of PostgREST for reliability
+            conn = get_db_connection()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            
+            # Get warehouse data
+            cur.execute("SELECT * FROM warehouses WHERE id = %s", (warehouse_id,))
+            warehouse_data = cur.fetchone()
             
             if not warehouse_data:
+                cur.close()
+                conn.close()
                 flash('Warehouse not found.', 'error')
                 return redirect(url_for('warehouses'))
             
-            warehouse = warehouse_data[0]
+            warehouse = dict(warehouse_data)
+            
+            # Get locations for this warehouse
+            cur.execute("SELECT * FROM locations WHERE warehouse_id = %s ORDER BY aisle, bin", (warehouse_id,))
+            locations = cur.fetchall()
+            warehouse['locations'] = [dict(loc) for loc in locations] if locations else []
+            
+            cur.close()
+            conn.close()
             
             if is_modal:
                 return render_template('edit_warehouse_modal.html', warehouse=warehouse)
