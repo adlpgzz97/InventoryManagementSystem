@@ -145,8 +145,12 @@
                                 <label class="form-check-label" for="product-{{ loop.index }}"></label>
                             </div>
                         </td>
-                        <td><code>{{ product.sku }}</code></td>
-                        <td><strong>{{ product.name }}</strong></td>
+                                                 <td><code>{{ product.sku }}</code></td>
+                         <td>
+                             <a href="#" class="product-details-link text-decoration-none" data-product-id="{{ product.id }}" data-product-name="{{ product.name }}">
+                                 <strong>{{ product.name }}</strong>
+                             </a>
+                         </td>
                         <td>{{ product.description or 'N/A' }}</td>
                         <td>{{ product.dimensions or 'N/A' }}</td>
                         <td>
@@ -1084,7 +1088,445 @@ document.addEventListener('DOMContentLoaded', function() {
                 exportBtn.classList.add('btn-outline-secondary');
             }, 2000);
         }
-    }
-});
-</script>
-{% endblock %}
+         }
+
+     // Product Details Modal Functionality
+     let productDetailsModal = null;
+     let productDetailsCharts = {};
+
+     // Make product names clickable
+     document.addEventListener('click', function(e) {
+         if (e.target.closest('.product-details-link')) {
+             e.preventDefault();
+             const link = e.target.closest('.product-details-link');
+             const productId = link.getAttribute('data-product-id');
+             const productName = link.getAttribute('data-product-name');
+             showProductDetailsModal(productId, productName);
+         }
+     });
+
+     function showProductDetailsModal(productId, productName) {
+         // Create modal if it doesn't exist
+         if (!productDetailsModal) {
+             createProductDetailsModal().then(() => {
+                 // After modal is created, show it and load data
+                 showModalAndLoadData(productId, productName);
+             });
+         } else {
+             // Modal exists, show it and load data
+             showModalAndLoadData(productId, productName);
+         }
+     }
+
+     function showModalAndLoadData(productId, productName) {
+         // Show loading state
+         const loadingSpinner = document.getElementById('loading-spinner');
+         const productContent = document.getElementById('product-content');
+         const productNameHeader = document.getElementById('product-name');
+         
+         if (loadingSpinner) loadingSpinner.style.display = 'block';
+         if (productContent) productContent.style.display = 'none';
+         if (productNameHeader) productNameHeader.textContent = productName;
+
+         // Set product ID on edit button
+         const editBtn = document.getElementById('edit-product-btn');
+         if (editBtn) editBtn.setAttribute('data-product-id', productId);
+
+         // Show modal
+         productDetailsModal.show();
+
+         // Load product details
+         loadProductDetails(productId);
+     }
+
+     function createProductDetailsModal() {
+         return new Promise((resolve, reject) => {
+             // Create modal container
+             const modalContainer = document.createElement('div');
+             modalContainer.className = 'modal fade';
+             modalContainer.id = 'product-details-modal';
+             modalContainer.setAttribute('tabindex', '-1');
+             modalContainer.setAttribute('aria-labelledby', 'product-details-modal-label');
+             modalContainer.setAttribute('aria-hidden', 'true');
+
+             // Fetch modal content
+             fetch(`/product/details`)
+                 .then(response => response.text())
+                 .then(html => {
+                     modalContainer.innerHTML = html;
+                     document.body.appendChild(modalContainer);
+                     productDetailsModal = new bootstrap.Modal(modalContainer);
+
+                     // Add event listeners
+                     const editBtn = document.getElementById('edit-product-btn');
+                     if (editBtn) {
+                         editBtn.addEventListener('click', function() {
+                             // Get current product ID from the modal
+                             const currentProductId = this.getAttribute('data-product-id');
+                             // Trigger edit modal
+                             const editBtn = document.querySelector(`[data-type="product"][data-id="${currentProductId}"]`);
+                             if (editBtn) {
+                                 editBtn.click();
+                             }
+                             productDetailsModal.hide();
+                         });
+                     }
+                     
+                     resolve();
+                 })
+                 .catch(error => {
+                     console.error('Error creating modal:', error);
+                     reject(error);
+                 });
+         });
+     }
+
+     function loadProductDetails(productId) {
+         fetch(`/api/product/${productId}/details`)
+             .then(response => response.json())
+             .then(data => {
+                 if (data.error) {
+                     throw new Error(data.error);
+                 }
+                 populateProductDetails(data);
+             })
+             .catch(error => {
+                 console.error('Error loading product details:', error);
+                 alert('Error loading product details: ' + error.message);
+             });
+     }
+
+     function populateProductDetails(data) {
+         const product = data.product;
+         const forecasting = data.forecasting;
+
+         // Hide loading, show content
+         document.getElementById('loading-spinner').style.display = 'none';
+         document.getElementById('product-content').style.display = 'block';
+
+         // Update summary cards
+         document.getElementById('available-stock').textContent = forecasting.current_stock;
+         document.getElementById('total-stock').textContent = data.summary.total_locations > 0 ? 
+             data.stock_locations.reduce((sum, loc) => sum + loc.qty_available + loc.qty_reserved, 0) : 0;
+         
+         const daysOfStock = forecasting.days_of_stock;
+         document.getElementById('days-of-stock').textContent = daysOfStock === Infinity ? '∞' : Math.round(daysOfStock);
+         
+         const statusBadge = document.getElementById('stock-status-badge');
+         if (forecasting.stock_status === 'low') {
+             statusBadge.innerHTML = '<span class="badge bg-danger">Low Stock</span>';
+         } else {
+             statusBadge.innerHTML = '<span class="badge bg-success">OK</span>';
+         }
+
+         // Update product information
+         document.getElementById('product-sku').textContent = product.sku;
+         document.getElementById('product-name-info').textContent = product.name;
+         document.getElementById('product-description').textContent = product.description || 'N/A';
+         document.getElementById('product-dimensions').textContent = product.dimensions || 'N/A';
+         document.getElementById('product-weight').textContent = product.weight ? `${product.weight} kg` : 'N/A';
+         document.getElementById('product-barcode').textContent = product.barcode || 'N/A';
+         document.getElementById('product-batch-tracking').textContent = product.batch_tracked ? 'Enabled' : 'Disabled';
+
+         // Populate locations table
+         populateLocationsTable(data.stock_locations);
+
+         // Populate transactions table
+         populateTransactionsTable(data.transaction_history);
+
+         // Populate forecasting data
+         populateForecastingData(data.forecasting);
+
+         // Populate alerts
+         populateAlerts(data);
+
+         // Create charts
+         createCharts(data);
+
+         // Update counts
+         document.getElementById('locations-count').textContent = `${data.summary.total_locations} locations`;
+         document.getElementById('transactions-count').textContent = `${data.summary.total_transactions} transactions`;
+     }
+
+     function populateLocationsTable(locations) {
+         const tbody = document.getElementById('locations-table-body');
+         tbody.innerHTML = '';
+
+         if (locations.length === 0) {
+             tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No stock locations found</td></tr>';
+             return;
+         }
+
+         locations.forEach(location => {
+             const row = document.createElement('tr');
+             row.innerHTML = `
+                 <td>${location.warehouse_name || 'Unknown'}</td>
+                 <td>${location.aisle}${location.bin}</td>
+                 <td><span class="badge bg-success">${location.qty_available}</span></td>
+                 <td><span class="badge bg-warning">${location.qty_reserved}</span></td>
+                 <td>${location.batch_id || 'N/A'}</td>
+                 <td>${location.expiry_date ? new Date(location.expiry_date).toLocaleDateString() : 'N/A'}</td>
+                 <td>${new Date(location.created_at).toLocaleDateString()}</td>
+             `;
+             tbody.appendChild(row);
+         });
+     }
+
+     function populateTransactionsTable(transactions) {
+         const tbody = document.getElementById('transactions-table-body');
+         tbody.innerHTML = '';
+
+         if (transactions.length === 0) {
+             tbody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No transaction history found</td></tr>';
+             return;
+         }
+
+         transactions.forEach(txn => {
+             const row = document.createElement('tr');
+             const typeBadge = getTransactionTypeBadge(txn.transaction_type);
+             row.innerHTML = `
+                 <td>${new Date(txn.created_at).toLocaleDateString()}</td>
+                 <td>${typeBadge}</td>
+                 <td>${txn.quantity_change > 0 ? '+' : ''}${txn.quantity_change}</td>
+                 <td>${txn.quantity_before}</td>
+                 <td>${txn.quantity_after}</td>
+                 <td>${txn.user_name || 'System'}</td>
+                 <td>${txn.notes || '-'}</td>
+             `;
+             tbody.appendChild(row);
+         });
+     }
+
+     function getTransactionTypeBadge(type) {
+         const badges = {
+             'receive': '<span class="badge bg-success">Receive</span>',
+             'ship': '<span class="badge bg-primary">Ship</span>',
+             'adjust': '<span class="badge bg-warning">Adjust</span>',
+             'reserve': '<span class="badge bg-info">Reserve</span>'
+         };
+         return badges[type] || `<span class="badge bg-secondary">${type}</span>`;
+     }
+
+     function populateForecastingData(forecasting) {
+         document.getElementById('avg-daily-usage').textContent = `${Math.round(forecasting.avg_daily_usage * 100) / 100} units`;
+         document.getElementById('usage-std-dev').textContent = `${Math.round(forecasting.usage_std_dev * 100) / 100} units`;
+         document.getElementById('max-daily-usage').textContent = `${forecasting.max_daily_usage} units`;
+         document.getElementById('lead-time').textContent = `${forecasting.lead_time_days} days`;
+         document.getElementById('safety-stock').textContent = `${Math.round(forecasting.safety_stock)} units`;
+         document.getElementById('reorder-point').textContent = `${Math.round(forecasting.reorder_point)} units`;
+
+         // Generate recommendations
+         generateRecommendations(forecasting);
+     }
+
+     function generateRecommendations(forecasting) {
+         const recommendations = document.getElementById('recommendations');
+         const recommendationsList = [];
+
+         if (forecasting.current_stock <= forecasting.reorder_point) {
+             recommendationsList.push({
+                 type: 'danger',
+                 icon: 'exclamation-triangle',
+                 text: `Reorder immediately. Current stock (${forecasting.current_stock}) is at or below reorder point (${Math.round(forecasting.reorder_point)}).`
+             });
+         } else if (forecasting.current_stock <= forecasting.reorder_point * 1.2) {
+             recommendationsList.push({
+                 type: 'warning',
+                 icon: 'clock',
+                 text: `Consider reordering soon. Stock will reach reorder point in approximately ${Math.round((forecasting.current_stock - forecasting.reorder_point) / forecasting.avg_daily_usage)} days.`
+             });
+         }
+
+         if (forecasting.days_of_stock < 7) {
+             recommendationsList.push({
+                 type: 'danger',
+                 icon: 'calendar-times',
+                 text: `Low stock warning: Only ${Math.round(forecasting.days_of_stock)} days of stock remaining.`
+             });
+         }
+
+         if (forecasting.avg_daily_usage === 0) {
+             recommendationsList.push({
+                 type: 'info',
+                 icon: 'info-circle',
+                 text: 'No usage data available. Consider setting up usage tracking for better forecasting.'
+             });
+         }
+
+         if (recommendationsList.length === 0) {
+             recommendationsList.push({
+                 type: 'success',
+                 icon: 'check-circle',
+                 text: 'Stock levels are healthy. No immediate action required.'
+             });
+         }
+
+         recommendations.innerHTML = recommendationsList.map(rec => `
+             <div class="alert alert-${rec.type} alert-sm">
+                 <i class="fas fa-${rec.icon} me-2"></i>${rec.text}
+             </div>
+         `).join('');
+     }
+
+     function populateAlerts(data) {
+         // Stock alerts
+         const stockAlerts = document.getElementById('stock-alerts');
+         const stockAlertsList = [];
+
+         if (data.forecasting.current_stock <= data.forecasting.reorder_point) {
+             stockAlertsList.push({
+                 type: 'danger',
+                 icon: 'exclamation-triangle',
+                 text: `Stock below reorder point (${Math.round(data.forecasting.reorder_point)} units)`
+             });
+         }
+
+         if (data.forecasting.days_of_stock < 7) {
+             stockAlertsList.push({
+                 type: 'warning',
+                 icon: 'calendar-times',
+                 text: `Only ${Math.round(data.forecasting.days_of_stock)} days of stock remaining`
+             });
+         }
+
+         if (stockAlertsList.length === 0) {
+             stockAlertsList.push({
+                 type: 'success',
+                 icon: 'check-circle',
+                 text: 'Stock levels are adequate'
+             });
+         }
+
+         stockAlerts.innerHTML = stockAlertsList.map(alert => `
+             <div class="alert alert-${alert.type} alert-sm">
+                 <i class="fas fa-${alert.icon} me-2"></i>${alert.text}
+             </div>
+         `).join('');
+
+         // Expiry alerts
+         const expiryAlerts = document.getElementById('expiry-alerts');
+         if (data.expiry_alerts.length === 0) {
+             expiryAlerts.innerHTML = '<div class="alert alert-success alert-sm"><i class="fas fa-check-circle me-2"></i>No expiring batches</div>';
+         } else {
+             expiryAlerts.innerHTML = data.expiry_alerts.map(alert => {
+                 const daysToExpiry = Math.ceil((new Date(alert.expiry_date) - new Date()) / (1000 * 60 * 60 * 24));
+                 const alertType = daysToExpiry <= 7 ? 'danger' : daysToExpiry <= 14 ? 'warning' : 'info';
+                 return `
+                     <div class="alert alert-${alertType} alert-sm">
+                         <i class="fas fa-clock me-2"></i>
+                         <strong>Batch ${alert.batch_id}</strong> expires in ${daysToExpiry} days<br>
+                         <small>${alert.qty_available} units at ${alert.warehouse_name} - ${alert.aisle}${alert.bin}</small>
+                     </div>
+                 `;
+             }).join('');
+         }
+     }
+
+     function createCharts(data) {
+         // Destroy existing charts
+         Object.values(productDetailsCharts).forEach(chart => {
+             if (chart && chart.destroy) {
+                 chart.destroy();
+             }
+         });
+         productDetailsCharts = {};
+
+         // Warehouse distribution chart
+         const warehouseCtx = document.getElementById('warehouse-chart');
+         if (warehouseCtx && data.warehouse_distribution.length > 0) {
+             productDetailsCharts.warehouse = new Chart(warehouseCtx, {
+                 type: 'doughnut',
+                 data: {
+                     labels: data.warehouse_distribution.map(w => w.warehouse_name),
+                     datasets: [{
+                         data: data.warehouse_distribution.map(w => w.total_available),
+                         backgroundColor: ['#007bff', '#28a745', '#ffc107', '#dc3545', '#6c757d']
+                     }]
+                 },
+                 options: {
+                     responsive: true,
+                     maintainAspectRatio: false,
+                     plugins: {
+                         legend: {
+                             position: 'bottom'
+                         }
+                     }
+                 }
+             });
+         }
+
+         // Stock trend chart
+         const trendCtx = document.getElementById('stock-trend-chart');
+         if (trendCtx && data.stock_trends.length > 0) {
+             productDetailsCharts.trend = new Chart(trendCtx, {
+                 type: 'line',
+                 data: {
+                     labels: data.stock_trends.map(t => new Date(t.date).toLocaleDateString()),
+                     datasets: [{
+                         label: 'Received',
+                         data: data.stock_trends.map(t => t.received),
+                         borderColor: '#28a745',
+                         backgroundColor: 'rgba(40, 167, 69, 0.1)',
+                         fill: true
+                     }, {
+                         label: 'Shipped',
+                         data: data.stock_trends.map(t => -t.shipped),
+                         borderColor: '#dc3545',
+                         backgroundColor: 'rgba(220, 53, 69, 0.1)',
+                         fill: true
+                     }]
+                 },
+                 options: {
+                     responsive: true,
+                     maintainAspectRatio: false,
+                     scales: {
+                         y: {
+                             beginAtZero: true
+                         }
+                     }
+                 }
+             });
+         }
+
+         // Stock level analysis chart
+         const levelCtx = document.getElementById('stock-level-chart');
+         if (levelCtx) {
+             const currentStock = data.forecasting.current_stock;
+             const reorderPoint = data.forecasting.reorder_point;
+             const safetyStock = data.forecasting.safety_stock;
+             const maxStock = Math.max(currentStock, reorderPoint * 1.5);
+
+             productDetailsCharts.level = new Chart(levelCtx, {
+                 type: 'bar',
+                 data: {
+                     labels: ['Current Stock', 'Reorder Point', 'Safety Stock'],
+                     datasets: [{
+                         data: [currentStock, reorderPoint, safetyStock],
+                         backgroundColor: [
+                             currentStock > reorderPoint ? '#28a745' : '#dc3545',
+                             '#ffc107',
+                             '#6c757d'
+                         ]
+                     }]
+                 },
+                 options: {
+                     responsive: true,
+                     maintainAspectRatio: false,
+                     scales: {
+                         y: {
+                             beginAtZero: true,
+                             max: maxStock
+                         }
+                     },
+                     plugins: {
+                         legend: {
+                             display: false
+                         }
+                     }
+                 }
+             });
+         }
+     }
+ });
+ </script>
+ {% endblock %}

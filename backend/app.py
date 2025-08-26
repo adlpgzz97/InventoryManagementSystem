@@ -781,6 +781,192 @@ def api_products():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+@app.route('/product/details', methods=['GET'])
+def product_details_modal():
+    """Serve product details modal template"""
+    return render_template('product_details_modal.html')
+
+@app.route('/api/product/<product_id>/details', methods=['GET'])
+def api_product_details(product_id):
+    """API endpoint for comprehensive product details"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Get basic product information
+        cur.execute("SELECT * FROM products WHERE id = %s", (product_id,))
+        product = cur.fetchone()
+        
+        if not product:
+            return jsonify({'error': 'Product not found'}), 404
+        
+        # Get location-specific stock details
+        cur.execute("""
+            SELECT 
+                si.id,
+                si.qty_available,
+                si.qty_reserved,
+                si.batch_id,
+                si.expiry_date,
+                si.created_at,
+                l.aisle,
+                l.bin,
+                w.name as warehouse_name,
+                w.address as warehouse_address
+            FROM stock_items si
+            LEFT JOIN locations l ON si.location_id = l.id
+            LEFT JOIN warehouses w ON l.warehouse_id = w.id
+            WHERE si.product_id = %s
+            ORDER BY w.name, l.aisle, l.bin
+        """, (product_id,))
+        stock_locations = cur.fetchall()
+        
+        # Get stock transaction history (last 30 days)
+        cur.execute("""
+            SELECT 
+                st.transaction_type,
+                st.quantity_change,
+                st.quantity_before,
+                st.quantity_after,
+                st.created_at,
+                st.notes,
+                u.username as user_name
+            FROM stock_transactions st
+            LEFT JOIN stock_items si ON st.stock_item_id = si.id
+            LEFT JOIN users u ON st.user_id = u.id
+            WHERE si.product_id = %s
+            ORDER BY st.created_at DESC
+            LIMIT 100
+        """, (product_id,))
+        transaction_history = cur.fetchall()
+        
+        # Get stock movement trends (daily for last 30 days)
+        cur.execute("""
+            SELECT 
+                DATE(st.created_at) as date,
+                SUM(CASE WHEN st.transaction_type = 'receive' THEN st.quantity_change ELSE 0 END) as received,
+                SUM(CASE WHEN st.transaction_type = 'ship' THEN st.quantity_change ELSE 0 END) as shipped,
+                SUM(CASE WHEN st.transaction_type = 'adjust' THEN st.quantity_change ELSE 0 END) as adjusted
+            FROM stock_transactions st
+            LEFT JOIN stock_items si ON st.stock_item_id = si.id
+            WHERE si.product_id = %s 
+            AND st.created_at >= CURRENT_DATE - INTERVAL '30 days'
+            GROUP BY DATE(st.created_at)
+            ORDER BY date
+        """, (product_id,))
+        stock_trends = cur.fetchall()
+        
+        # Calculate forecasting data
+        # Get average daily usage (last 30 days)
+        cur.execute("""
+            SELECT 
+                COALESCE(AVG(daily_usage), 0) as avg_daily_usage,
+                COALESCE(STDDEV(daily_usage), 0) as usage_std_dev,
+                COALESCE(MAX(daily_usage), 0) as max_daily_usage
+            FROM (
+                SELECT 
+                    DATE(st.created_at) as date,
+                    ABS(SUM(CASE WHEN st.transaction_type = 'ship' THEN st.quantity_change ELSE 0 END)) as daily_usage
+                FROM stock_transactions st
+                LEFT JOIN stock_items si ON st.stock_item_id = si.id
+                WHERE si.product_id = %s 
+                AND st.transaction_type = 'ship'
+                AND st.created_at >= CURRENT_DATE - INTERVAL '30 days'
+                GROUP BY DATE(st.created_at)
+            ) daily_stats
+        """, (product_id,))
+        usage_stats = cur.fetchone()
+        
+        # Calculate reorder point and safety stock
+        avg_daily_usage = usage_stats['avg_daily_usage'] or 0
+        usage_std_dev = usage_stats['usage_std_dev'] or 0
+        lead_time_days = 7  # Assume 7 days lead time
+        safety_stock = max(usage_std_dev * 2, avg_daily_usage * 0.5)  # 2 standard deviations or 50% of daily usage
+        reorder_point = (avg_daily_usage * lead_time_days) + safety_stock
+        
+        # Get current total stock
+        cur.execute("""
+            SELECT 
+                COALESCE(SUM(qty_available), 0) as total_available,
+                COALESCE(SUM(qty_reserved), 0) as total_reserved,
+                COALESCE(SUM(qty_available + qty_reserved), 0) as total_stock
+            FROM stock_items 
+            WHERE product_id = %s
+        """, (product_id,))
+        current_stock = cur.fetchone()
+        
+        # Get warehouse distribution
+        cur.execute("""
+            SELECT 
+                w.name as warehouse_name,
+                COUNT(si.id) as locations_count,
+                SUM(si.qty_available) as total_available,
+                SUM(si.qty_reserved) as total_reserved
+            FROM stock_items si
+            LEFT JOIN locations l ON si.location_id = l.id
+            LEFT JOIN warehouses w ON l.warehouse_id = w.id
+            WHERE si.product_id = %s
+            GROUP BY w.name
+            ORDER BY total_available DESC
+        """, (product_id,))
+        warehouse_distribution = cur.fetchall()
+        
+        # Get expiry alerts (if batch tracked)
+        expiry_alerts = []
+        if product['batch_tracked']:
+            cur.execute("""
+                SELECT 
+                    si.batch_id,
+                    si.expiry_date,
+                    si.qty_available,
+                    l.aisle,
+                    l.bin,
+                    w.name as warehouse_name
+                FROM stock_items si
+                LEFT JOIN locations l ON si.location_id = l.id
+                LEFT JOIN warehouses w ON l.warehouse_id = w.id
+                WHERE si.product_id = %s 
+                AND si.expiry_date IS NOT NULL
+                AND si.expiry_date <= CURRENT_DATE + INTERVAL '30 days'
+                ORDER BY si.expiry_date
+            """, (product_id,))
+            expiry_alerts = cur.fetchall()
+        
+        cur.close()
+        conn.close()
+        
+        # Prepare response data
+        product_details = {
+            'product': dict(product),
+            'stock_locations': [dict(loc) for loc in stock_locations],
+            'transaction_history': [dict(txn) for txn in transaction_history],
+            'stock_trends': [dict(trend) for trend in stock_trends],
+            'forecasting': {
+                'avg_daily_usage': avg_daily_usage,
+                'usage_std_dev': usage_std_dev,
+                'max_daily_usage': usage_stats['max_daily_usage'],
+                'lead_time_days': lead_time_days,
+                'safety_stock': safety_stock,
+                'reorder_point': reorder_point,
+                'current_stock': current_stock['total_available'],
+                'days_of_stock': current_stock['total_available'] / avg_daily_usage if avg_daily_usage > 0 else float('inf'),
+                'stock_status': 'low' if current_stock['total_available'] <= reorder_point else 'ok'
+            },
+            'warehouse_distribution': [dict(w) for w in warehouse_distribution],
+            'expiry_alerts': [dict(alert) for alert in expiry_alerts],
+            'summary': {
+                'total_locations': len(stock_locations),
+                'total_warehouses': len(warehouse_distribution),
+                'total_transactions': len(transaction_history),
+                'expiring_batches': len(expiry_alerts)
+            }
+        }
+        
+        return jsonify(product_details)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/api/products/barcode/<barcode>', methods=['GET'])
 def api_product_by_barcode(barcode):
     """API endpoint to find product by barcode"""
