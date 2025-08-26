@@ -729,41 +729,54 @@
             function attachAisleEventListeners() {
                 // Bin count input change
                 document.querySelectorAll('.bin-count').forEach(input => {
-                    input.addEventListener('change', function() {
-                        const aisleId = parseInt(this.dataset.aisleId);
-                        const newValue = parseInt(this.value) || 1;
-                        const aisle = aisles.find(a => a.id === aisleId);
-                        if (aisle) {
-                            aisle.bins = Math.max(1, Math.min(50, newValue));
-                            this.value = aisle.bins;
-                            updateAislesDisplay();
-                        }
-                    });
+                    // Remove existing listeners to prevent duplicates
+                    input.removeEventListener('change', handleBinCountChange);
+                    input.addEventListener('change', handleBinCountChange);
                 });
                 
                 // Plus button
                 document.querySelectorAll('.bin-plus').forEach(btn => {
-                    btn.addEventListener('click', function() {
-                        const aisleId = parseInt(this.dataset.aisleId);
-                        const aisle = aisles.find(a => a.id === aisleId);
-                        if (aisle && aisle.bins < 50) {
-                            aisle.bins++;
-                            updateAislesDisplay();
-                        }
-                    });
+                    // Remove existing listeners to prevent duplicates
+                    btn.removeEventListener('click', handleBinPlus);
+                    btn.addEventListener('click', handleBinPlus);
                 });
                 
                 // Minus button
                 document.querySelectorAll('.bin-minus').forEach(btn => {
-                    btn.addEventListener('click', function() {
-                        const aisleId = parseInt(this.dataset.aisleId);
-                        const aisle = aisles.find(a => a.id === aisleId);
-                        if (aisle && aisle.bins > 1) {
-                            aisle.bins--;
-                            updateAislesDisplay();
-                        }
-                    });
+                    // Remove existing listeners to prevent duplicates
+                    btn.removeEventListener('click', handleBinMinus);
+                    btn.addEventListener('click', handleBinMinus);
                 });
+                
+                // Helper functions for event handlers
+                function handleBinCountChange() {
+                    const aisleId = parseInt(this.dataset.aisleId);
+                    const newValue = parseInt(this.value) || 1;
+                    const aisle = aisles.find(a => a.id === aisleId);
+                    if (aisle) {
+                        aisle.bins = Math.max(1, Math.min(50, newValue));
+                        this.value = aisle.bins;
+                        updateAislesDisplay();
+                    }
+                }
+                
+                function handleBinPlus() {
+                    const aisleId = parseInt(this.dataset.aisleId);
+                    const aisle = aisles.find(a => a.id === aisleId);
+                    if (aisle && aisle.bins < 50) {
+                        aisle.bins++;
+                        updateAislesDisplay();
+                    }
+                }
+                
+                function handleBinMinus() {
+                    const aisleId = parseInt(this.dataset.aisleId);
+                    const aisle = aisles.find(a => a.id === aisleId);
+                    if (aisle && aisle.bins > 1) {
+                        aisle.bins--;
+                        updateAislesDisplay();
+                    }
+                }
                 
                 // Remove aisle button
                 document.querySelectorAll('.remove-aisle-btn').forEach(btn => {

@@ -115,6 +115,17 @@
     padding: 4px 8px;
 }
 
+/* Remove browser default spinners from number inputs */
+.bin-counter input[type="number"]::-webkit-outer-spin-button,
+.bin-counter input[type="number"]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.bin-counter input[type="number"] {
+    -moz-appearance: textfield; /* Firefox */
+}
+
 .bin-counter .btn {
     width: 32px;
     height: 32px;
