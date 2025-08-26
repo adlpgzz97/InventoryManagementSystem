@@ -452,6 +452,11 @@
                             submitModalForm(form, modal);
                         });
                     }
+                    
+                    // Initialize warehouse-specific functionality if it's a warehouse modal
+                    if (itemType === 'warehouse') {
+                        initializeWarehouseModal();
+                    }
                 })
                 .catch(error => {
                     editModalBody.innerHTML = `<div class="alert alert-danger">Error loading form: ${error.message}</div>`;
@@ -512,6 +517,208 @@
             .catch(error => {
                 alert('Error deleting item: ' + error.message);
             });
+        }
+
+        // Initialize warehouse modal functionality
+        function initializeWarehouseModal() {
+            let aisles = [];
+            let nextAisleLetter = 'A';
+            
+            // Initialize the interface
+            updateAislesDisplay();
+            
+            // Quick Setup functionality
+            const applyQuickSetupBtn = document.getElementById('applyQuickSetup');
+            if (applyQuickSetupBtn) {
+                applyQuickSetupBtn.addEventListener('click', function() {
+                    const numAisles = parseInt(document.getElementById('quick_aisles').value) || 3;
+                    const defaultBins = parseInt(document.getElementById('quick_bins').value) || 5;
+                    
+                    if (numAisles < 1 || numAisles > 26) {
+                        alert('Please enter a valid number of aisles (1-26)');
+                        return;
+                    }
+                    
+                    if (defaultBins < 1 || defaultBins > 50) {
+                        alert('Please enter a valid number of bins (1-50)');
+                        return;
+                    }
+                    
+                    // Clear existing aisles
+                    aisles = [];
+                    nextAisleLetter = 'A';
+                    
+                    // Create new aisles
+                    for (let i = 0; i < numAisles; i++) {
+                        const aisleLetter = String.fromCharCode(65 + i); // A, B, C, etc.
+                        aisles.push({
+                            id: Date.now() + i,
+                            name: aisleLetter,
+                            bins: defaultBins
+                        });
+                    }
+                    
+                    nextAisleLetter = String.fromCharCode(65 + numAisles);
+                    updateAislesDisplay();
+                });
+            }
+            
+            // Add Aisle functionality
+            const addAisleBtn = document.getElementById('addAisleBtn');
+            if (addAisleBtn) {
+                addAisleBtn.addEventListener('click', function() {
+                    if (nextAisleLetter > 'Z') {
+                        alert('Maximum 26 aisles allowed (A-Z)');
+                        return;
+                    }
+                    
+                    aisles.push({
+                        id: Date.now(),
+                        name: nextAisleLetter,
+                        bins: 5
+                    });
+                    
+                    nextAisleLetter = String.fromCharCode(nextAisleLetter.charCodeAt(0) + 1);
+                    updateAislesDisplay();
+                });
+            }
+            
+            function updateAislesDisplay() {
+                const aislesList = document.getElementById('aislesList');
+                const noAislesMessage = document.getElementById('noAislesMessage');
+                
+                if (aisles.length === 0) {
+                    aislesList.innerHTML = '';
+                    noAislesMessage.style.display = 'block';
+                } else {
+                    noAislesMessage.style.display = 'none';
+                    aislesList.innerHTML = aisles.map(aisle => createAisleRow(aisle)).join('');
+                }
+                
+                // Update hidden input for form submission
+                const aislesDataInput = document.getElementById('aislesData');
+                if (aislesDataInput) {
+                    aislesDataInput.value = JSON.stringify(aisles);
+                }
+                
+                // Reattach event listeners
+                attachAisleEventListeners();
+            }
+            
+            function createAisleRow(aisle) {
+                return `
+                    <div class="aisle-row" data-aisle-id="${aisle.id}">
+                        <div class="row align-items-center">
+                            <div class="col-md-3">
+                                <span class="aisle-name">Aisle ${aisle.name}</span>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="bin-counter">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm bin-minus" 
+                                            data-aisle-id="${aisle.id}">
+                                        <i class="fas fa-minus"></i>
+                                    </button>
+                                    <input type="number" class="form-control bin-count" 
+                                           value="${aisle.bins}" min="1" max="50" 
+                                           data-aisle-id="${aisle.id}">
+                                    <button type="button" class="btn btn-outline-secondary btn-sm bin-plus" 
+                                            data-aisle-id="${aisle.id}">
+                                        <i class="fas fa-plus"></i>
+                                    </button>
+                                    <span class="text-muted ms-2">bins</span>
+                                </div>
+                            </div>
+                            <div class="col-md-3">
+                                <div class="aisle-actions">
+                                    <button type="button" class="btn btn-sm remove-aisle-btn" 
+                                            data-aisle-id="${aisle.id}">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+            
+            function attachAisleEventListeners() {
+                // Bin count input change
+                document.querySelectorAll('.bin-count').forEach(input => {
+                    input.addEventListener('change', function() {
+                        const aisleId = parseInt(this.dataset.aisleId);
+                        const newValue = parseInt(this.value) || 1;
+                        const aisle = aisles.find(a => a.id === aisleId);
+                        if (aisle) {
+                            aisle.bins = Math.max(1, Math.min(50, newValue));
+                            this.value = aisle.bins;
+                            updateAislesDisplay();
+                        }
+                    });
+                });
+                
+                // Plus button
+                document.querySelectorAll('.bin-plus').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const aisleId = parseInt(this.dataset.aisleId);
+                        const aisle = aisles.find(a => a.id === aisleId);
+                        if (aisle && aisle.bins < 50) {
+                            aisle.bins++;
+                            updateAislesDisplay();
+                        }
+                    });
+                });
+                
+                // Minus button
+                document.querySelectorAll('.bin-minus').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const aisleId = parseInt(this.dataset.aisleId);
+                        const aisle = aisles.find(a => a.id === aisleId);
+                        if (aisle && aisle.bins > 1) {
+                            aisle.bins--;
+                            updateAislesDisplay();
+                        }
+                    });
+                });
+                
+                // Remove aisle button
+                document.querySelectorAll('.remove-aisle-btn').forEach(btn => {
+                    btn.addEventListener('click', function() {
+                        const aisleId = parseInt(this.dataset.aisleId);
+                        const aisleIndex = aisles.findIndex(a => a.id === aisleId);
+                        if (aisleIndex !== -1) {
+                            const removedAisle = aisles[aisleIndex];
+                            aisles.splice(aisleIndex, 1);
+                            
+                            // Update next aisle letter if we removed the last one
+                            if (removedAisle.name >= nextAisleLetter) {
+                                nextAisleLetter = removedAisle.name;
+                            }
+                            
+                            updateAislesDisplay();
+                        }
+                    });
+                });
+            }
+            
+            // Form submission validation
+            const form = document.getElementById('addWarehouseForm');
+            if (form) {
+                form.addEventListener('submit', function(e) {
+                    if (aisles.length === 0) {
+                        e.preventDefault();
+                        alert('Please add at least one aisle before creating the warehouse.');
+                        return;
+                    }
+                    
+                    // Validate warehouse name
+                    const warehouseName = document.getElementById('name').value.trim();
+                    if (!warehouseName) {
+                        e.preventDefault();
+                        alert('Please enter a warehouse name.');
+                        return;
+                    }
+                });
+            }
         }
     });
     </script>
