@@ -16,39 +16,57 @@
         <small class="form-text text-muted">Full address including street, city, state, postal code</small>
     </div>
     
-    <div class="mb-3">
-        <label class="form-label">Sample Storage Locations</label>
-        <div class="row">
-            <div class="col-md-6">
-                <div class="mb-2">
-                    <label for="sample_aisles" class="form-label">Aisles</label>
-                    <input type="text" class="form-control" id="sample_aisles" name="sample_aisles" 
-                           placeholder="e.g., A,B,C" value="A,B">
-                    <small class="form-text text-muted">Comma-separated (e.g., A,B,C)</small>
-                </div>
-            </div>
-            <div class="col-md-6">
-                <div class="mb-2">
-                    <label for="sample_bins" class="form-label">Bins per Aisle</label>
-                    <input type="number" min="1" max="20" class="form-control" id="sample_bins" name="sample_bins" 
-                           value="3">
-                    <small class="form-text text-muted">Number of bins (1-20)</small>
-                </div>
-            </div>
+    <!-- Quick Setup Section -->
+    <div class="card mb-3">
+        <div class="card-header">
+            <h6 class="mb-0"><i class="fas fa-magic me-2"></i>Quick Setup</h6>
         </div>
-        <div class="form-check">
-            <input class="form-check-input" type="checkbox" id="create_locations" name="create_locations" checked>
-            <label class="form-check-label" for="create_locations">
-                Create sample storage locations automatically
-            </label>
+        <div class="card-body">
+            <div class="row">
+                <div class="col-md-6">
+                    <label for="quick_aisles" class="form-label">Number of Aisles</label>
+                    <input type="number" min="1" max="26" class="form-control" id="quick_aisles" 
+                           placeholder="e.g., 5" value="3">
+                    <small class="form-text text-muted">Will create A, B, C, etc.</small>
+                </div>
+                <div class="col-md-6">
+                    <label for="quick_bins" class="form-label">Default Bins per Aisle</label>
+                    <input type="number" min="1" max="50" class="form-control" id="quick_bins" 
+                           placeholder="e.g., 10" value="5">
+                    <small class="form-text text-muted">Number of bins for each aisle</small>
+                </div>
+            </div>
+            <div class="mt-3">
+                <button type="button" class="btn btn-outline-primary btn-sm" id="applyQuickSetup">
+                    <i class="fas fa-play me-1"></i>Apply Quick Setup
+                </button>
+                <small class="text-muted ms-2">This will overwrite the current aisle list</small>
+            </div>
         </div>
     </div>
     
-    <div class="alert alert-warning">
-        <i class="fas fa-exclamation-triangle me-2"></i>
-        <strong>Phase 2 Feature:</strong> Advanced location management will be available in the next phase. 
-        For now, you can create basic storage locations using the sample generator above.
+    <!-- Dynamic Aisles Section -->
+    <div class="card mb-3">
+        <div class="card-header d-flex justify-content-between align-items-center">
+            <h6 class="mb-0"><i class="fas fa-warehouse me-2"></i>Storage Aisles & Bins</h6>
+            <button type="button" class="btn btn-success btn-sm" id="addAisleBtn">
+                <i class="fas fa-plus me-1"></i>Add Aisle
+            </button>
+        </div>
+        <div class="card-body">
+            <div id="aislesList">
+                <!-- Aisles will be dynamically added here -->
+            </div>
+            <div id="noAislesMessage" class="text-center text-muted py-4">
+                <i class="fas fa-warehouse fa-2x mb-2"></i>
+                <p>No aisles configured yet. Use Quick Setup or click "Add Aisle" to get started.</p>
+            </div>
+        </div>
     </div>
+    
+    <!-- Hidden inputs for form submission -->
+    <input type="hidden" id="aislesData" name="aisles_data" value="">
+    <input type="hidden" id="createLocations" name="create_locations" value="true">
     
     <div class="d-flex justify-content-end">
         <button type="button" class="btn btn-secondary me-2" data-bs-dismiss="modal">
@@ -61,3 +79,263 @@
 </form>
 
 <p class="mt-2 text-muted"><span class="text-danger">*</span> Required field</p>
+
+<style>
+.aisle-row {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 10px;
+    transition: all 0.2s ease;
+}
+
+.aisle-row:hover {
+    background: #e9ecef;
+    border-color: #adb5bd;
+}
+
+.aisle-row .aisle-name {
+    font-weight: 600;
+    color: #495057;
+    min-width: 60px;
+}
+
+.bin-counter {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.bin-counter input {
+    text-align: center;
+    width: 60px;
+    border: 1px solid #ced4da;
+    border-radius: 4px;
+    padding: 4px 8px;
+}
+
+.bin-counter .btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+}
+
+.remove-aisle-btn {
+    color: #dc3545;
+    border: 1px solid #dc3545;
+    background: transparent;
+}
+
+.remove-aisle-btn:hover {
+    background: #dc3545;
+    color: white;
+}
+
+.aisle-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+#noAislesMessage {
+    border: 2px dashed #dee2e6;
+    border-radius: 8px;
+    background: #f8f9fa;
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    let aisles = [];
+    let nextAisleLetter = 'A';
+    
+    // Initialize the interface
+    updateAislesDisplay();
+    
+    // Quick Setup functionality
+    document.getElementById('applyQuickSetup').addEventListener('click', function() {
+        const numAisles = parseInt(document.getElementById('quick_aisles').value) || 3;
+        const defaultBins = parseInt(document.getElementById('quick_bins').value) || 5;
+        
+        if (numAisles < 1 || numAisles > 26) {
+            alert('Please enter a valid number of aisles (1-26)');
+            return;
+        }
+        
+        if (defaultBins < 1 || defaultBins > 50) {
+            alert('Please enter a valid number of bins (1-50)');
+            return;
+        }
+        
+        // Clear existing aisles
+        aisles = [];
+        nextAisleLetter = 'A';
+        
+        // Create new aisles
+        for (let i = 0; i < numAisles; i++) {
+            const aisleLetter = String.fromCharCode(65 + i); // A, B, C, etc.
+            aisles.push({
+                id: Date.now() + i,
+                name: aisleLetter,
+                bins: defaultBins
+            });
+        }
+        
+        nextAisleLetter = String.fromCharCode(65 + numAisles);
+        updateAislesDisplay();
+    });
+    
+    // Add Aisle functionality
+    document.getElementById('addAisleBtn').addEventListener('click', function() {
+        if (nextAisleLetter > 'Z') {
+            alert('Maximum 26 aisles allowed (A-Z)');
+            return;
+        }
+        
+        aisles.push({
+            id: Date.now(),
+            name: nextAisleLetter,
+            bins: 5
+        });
+        
+        nextAisleLetter = String.fromCharCode(nextAisleLetter.charCodeAt(0) + 1);
+        updateAislesDisplay();
+    });
+    
+    function updateAislesDisplay() {
+        const aislesList = document.getElementById('aislesList');
+        const noAislesMessage = document.getElementById('noAislesMessage');
+        
+        if (aisles.length === 0) {
+            aislesList.innerHTML = '';
+            noAislesMessage.style.display = 'block';
+        } else {
+            noAislesMessage.style.display = 'none';
+            aislesList.innerHTML = aisles.map(aisle => createAisleRow(aisle)).join('');
+        }
+        
+        // Update hidden input for form submission
+        document.getElementById('aislesData').value = JSON.stringify(aisles);
+        
+        // Reattach event listeners
+        attachAisleEventListeners();
+    }
+    
+    function createAisleRow(aisle) {
+        return `
+            <div class="aisle-row" data-aisle-id="${aisle.id}">
+                <div class="row align-items-center">
+                    <div class="col-md-3">
+                        <span class="aisle-name">Aisle ${aisle.name}</span>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="bin-counter">
+                            <button type="button" class="btn btn-outline-secondary btn-sm bin-minus" 
+                                    data-aisle-id="${aisle.id}">
+                                <i class="fas fa-minus"></i>
+                            </button>
+                            <input type="number" class="form-control bin-count" 
+                                   value="${aisle.bins}" min="1" max="50" 
+                                   data-aisle-id="${aisle.id}">
+                            <button type="button" class="btn btn-outline-secondary btn-sm bin-plus" 
+                                    data-aisle-id="${aisle.id}">
+                                <i class="fas fa-plus"></i>
+                            </button>
+                            <span class="text-muted ms-2">bins</span>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="aisle-actions">
+                            <button type="button" class="btn btn-sm remove-aisle-btn" 
+                                    data-aisle-id="${aisle.id}">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+    
+    function attachAisleEventListeners() {
+        // Bin count input change
+        document.querySelectorAll('.bin-count').forEach(input => {
+            input.addEventListener('change', function() {
+                const aisleId = parseInt(this.dataset.aisleId);
+                const newValue = parseInt(this.value) || 1;
+                const aisle = aisles.find(a => a.id === aisleId);
+                if (aisle) {
+                    aisle.bins = Math.max(1, Math.min(50, newValue));
+                    this.value = aisle.bins;
+                    updateAislesDisplay();
+                }
+            });
+        });
+        
+        // Plus button
+        document.querySelectorAll('.bin-plus').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const aisleId = parseInt(this.dataset.aisleId);
+                const aisle = aisles.find(a => a.id === aisleId);
+                if (aisle && aisle.bins < 50) {
+                    aisle.bins++;
+                    updateAislesDisplay();
+                }
+            });
+        });
+        
+        // Minus button
+        document.querySelectorAll('.bin-minus').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const aisleId = parseInt(this.dataset.aisleId);
+                const aisle = aisles.find(a => a.id === aisleId);
+                if (aisle && aisle.bins > 1) {
+                    aisle.bins--;
+                    updateAislesDisplay();
+                }
+            });
+        });
+        
+        // Remove aisle button
+        document.querySelectorAll('.remove-aisle-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                const aisleId = parseInt(this.dataset.aisleId);
+                const aisleIndex = aisles.findIndex(a => a.id === aisleId);
+                if (aisleIndex !== -1) {
+                    const removedAisle = aisles[aisleIndex];
+                    aisles.splice(aisleIndex, 1);
+                    
+                    // Update next aisle letter if we removed the last one
+                    if (removedAisle.name >= nextAisleLetter) {
+                        nextAisleLetter = removedAisle.name;
+                    }
+                    
+                    updateAislesDisplay();
+                }
+            });
+        });
+    }
+    
+    // Form submission
+    document.getElementById('addWarehouseForm').addEventListener('submit', function(e) {
+        if (aisles.length === 0) {
+            e.preventDefault();
+            alert('Please add at least one aisle before creating the warehouse.');
+            return;
+        }
+        
+        // Validate warehouse name
+        const warehouseName = document.getElementById('name').value.trim();
+        if (!warehouseName) {
+            e.preventDefault();
+            alert('Please enter a warehouse name.');
+            return;
+        }
+    });
+});
+</script>

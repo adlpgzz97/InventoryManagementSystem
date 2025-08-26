@@ -11,6 +11,7 @@ import psycopg2.extras
 import bcrypt
 import requests
 import os
+import json
 from datetime import datetime
 
 app = Flask(__name__, template_folder='views')
@@ -1329,25 +1330,45 @@ def add_warehouse():
                 'address': request.form.get('address') or None
             }
             
-            # Create warehouse via PostgREST
-            warehouse_response = postgrest_request('warehouses', 'POST', warehouse_data)
+            # Create warehouse via direct database query
+            conn = get_db_connection()
+            cur = conn.cursor()
             
-            # Create sample locations if requested
-            if request.form.get('create_locations') and warehouse_response:
-                warehouse_id = warehouse_response[0]['id'] if isinstance(warehouse_response, list) else warehouse_response['id']
-                sample_aisles = request.form.get('sample_aisles', 'A,B').split(',')
-                sample_bins = int(request.form.get('sample_bins', 3))
-                
-                for aisle in sample_aisles:
-                    aisle = aisle.strip()
-                    if aisle:
-                        for bin_num in range(1, min(sample_bins + 1, 21)):  # Max 20 bins
-                            location_data = {
-                                'warehouse_id': warehouse_id,
-                                'aisle': aisle,
-                                'bin': str(bin_num)
-                            }
-                            postgrest_request('locations', 'POST', location_data)
+            cur.execute("INSERT INTO warehouses (name, address) VALUES (%s, %s) RETURNING id", 
+                       (warehouse_data['name'], warehouse_data['address']))
+            warehouse_id = cur.fetchone()[0]
+            
+            # Create locations based on the new aisle data format
+            aisles_data = request.form.get('aisles_data')
+            if aisles_data:
+                try:
+                    aisles = json.loads(aisles_data)
+                    for aisle in aisles:
+                        aisle_name = aisle['name']
+                        bin_count = aisle['bins']
+                        
+                        # Create bins for this aisle
+                        for bin_num in range(1, bin_count + 1):
+                            cur.execute("INSERT INTO locations (warehouse_id, aisle, bin) VALUES (%s, %s, %s)", 
+                                       (warehouse_id, aisle_name, str(bin_num)))
+                    
+                    conn.commit()
+                except (json.JSONDecodeError, KeyError, TypeError) as e:
+                    print(f"Error parsing aisles data: {e}")
+                    # Fallback to old format if new format fails
+                    sample_aisles = request.form.get('sample_aisles', 'A,B').split(',')
+                    sample_bins = int(request.form.get('sample_bins', 3))
+                    
+                    for aisle in sample_aisles:
+                        aisle = aisle.strip()
+                        if aisle:
+                            for bin_num in range(1, min(sample_bins + 1, 21)):
+                                cur.execute("INSERT INTO locations (warehouse_id, aisle, bin) VALUES (%s, %s, %s)", 
+                                           (warehouse_id, aisle, str(bin_num)))
+                    conn.commit()
+            
+            cur.close()
+            conn.close()
             
             if is_modal:
                 return '<div class="alert alert-success">Warehouse created successfully!</div>'
