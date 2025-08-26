@@ -535,8 +535,9 @@
                 console.log('Edit mode detected, looking for existing locations...');
                 const existingLocationsInput = document.getElementById('existingLocations');
                 console.log('Existing locations input found:', existingLocationsInput);
-                if (existingLocationsInput && existingLocationsInput.value) {
+                if (existingLocationsInput && existingLocationsInput.value && existingLocationsInput.value.trim() !== '') {
                     console.log('Existing locations value:', existingLocationsInput.value);
+                    console.log('Existing locations value length:', existingLocationsInput.value.length);
                     try {
                         const existingLocations = JSON.parse(existingLocationsInput.value);
                         console.log('Parsed existing locations:', existingLocations);

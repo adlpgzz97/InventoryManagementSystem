@@ -67,12 +67,14 @@
     <!-- Hidden inputs for form submission -->
     <input type="hidden" id="aislesData" name="aisles_data" value="">
     <input type="hidden" id="createLocations" name="create_locations" value="true">
-    <input type="hidden" id="existingLocations" name="existing_locations" value="{{ warehouse.locations|tojson|safe }}">
+    <input type="hidden" id="existingLocations" name="existing_locations" value="{{ warehouse.locations|tojson|safe if warehouse.locations else '[]' }}">
     
     <!-- Debug info (remove in production) -->
     <script>
         console.log('Warehouse data:', {{ warehouse|tojson|safe }});
         console.log('Locations data:', {{ warehouse.locations|tojson|safe }});
+        console.log('Locations data type:', typeof {{ warehouse.locations|tojson|safe }});
+        console.log('Locations data length:', {{ warehouse.locations|length }});
     </script>
     
     <div class="d-flex justify-content-between">
