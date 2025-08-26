@@ -114,6 +114,9 @@
                         <th class="sortable" data-column="barcode" data-type="text">
                             Barcode <i class="fas fa-sort text-muted"></i>
                         </th>
+                        <th class="sortable" data-column="available_stock" data-type="number">
+                            Available Stock <i class="fas fa-sort text-muted"></i>
+                        </th>
                         <th class="sortable" data-column="total_stock" data-type="number">
                             Total Stock <i class="fas fa-sort text-muted"></i>
                         </th>
@@ -133,6 +136,7 @@
                         data-sku="{{ product.sku|lower }}" 
                         data-name="{{ product.name|lower }}" 
                         data-description="{{ (product.description or '')|lower }}" 
+                        data-available-stock="{{ product.available_stock }}"
                         data-total-stock="{{ product.total_stock }}"
                         data-category="{% if 'widget' in product.name|lower %}widget{% elif 'gadget' in product.name|lower %}gadget{% elif 'tool' in product.name|lower %}tool{% else %}other{% endif %}">
                         <td>
@@ -154,8 +158,13 @@
                         </td>
                         <td>{{ product.barcode or 'N/A' }}</td>
                         <td>
-                            <span class="badge {% if product.total_stock > 0 %}bg-success{% elif product.total_stock == 0 %}bg-danger{% else %}bg-secondary{% endif %}">
-                                <i class="fas fa-boxes me-1"></i>{{ product.total_stock }}
+                            <span class="badge {% if product.available_stock > 0 %}bg-success{% elif product.available_stock == 0 %}bg-danger{% else %}bg-secondary{% endif %}">
+                                <i class="fas fa-boxes me-1"></i>{{ product.available_stock }}
+                            </span>
+                        </td>
+                        <td>
+                            <span class="badge {% if product.total_stock > 0 %}bg-info{% elif product.total_stock == 0 %}bg-secondary{% else %}bg-secondary{% endif %}">
+                                <i class="fas fa-cubes me-1"></i>{{ product.total_stock }}
                             </span>
                         </td>
                         <td>
@@ -245,6 +254,7 @@
                          <li><label class="dropdown-item"><input type="checkbox" checked data-column="dimensions"> Dimensions</label></li>
                          <li><label class="dropdown-item"><input type="checkbox" checked data-column="weight"> Weight</label></li>
                          <li><label class="dropdown-item"><input type="checkbox" checked data-column="barcode"> Barcode</label></li>
+                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="available_stock"> Available Stock</label></li>
                          <li><label class="dropdown-item"><input type="checkbox" checked data-column="total_stock"> Total Stock</label></li>
                          <li><label class="dropdown-item"><input type="checkbox" checked data-column="batch_tracking"> Batch Tracking</label></li>
                          <li><label class="dropdown-item"><input type="checkbox" checked data-column="created"> Created</label></li>
@@ -496,7 +506,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function getCellValue(row, column, dataType) {
         const columnIndex = {
             'sku': 1, 'name': 2, 'description': 3, 'dimensions': 4, 
-            'weight': 5, 'barcode': 6, 'total_stock': 7, 'batch_tracking': 8, 'created': 9
+            'weight': 5, 'barcode': 6, 'available_stock': 7, 'total_stock': 8, 'batch_tracking': 9, 'created': 10
         };
         
         const cell = row.cells[columnIndex[column]];
@@ -508,8 +518,8 @@ document.addEventListener('DOMContentLoaded', function() {
                 return 0;
             }
             
-            // Special handling for total_stock column (badge with icon)
-            if (column === 'total_stock') {
+            // Special handling for stock columns (badge with icon)
+            if (column === 'available_stock' || column === 'total_stock') {
                 const badge = cell.querySelector('.badge');
                 if (badge) {
                     const badgeText = badge.textContent.trim();
@@ -544,7 +554,7 @@ document.addEventListener('DOMContentLoaded', function() {
      function toggleColumnVisibility(column, visible) {
          const columnIndex = {
              'sku': 1, 'name': 2, 'description': 3, 'dimensions': 4, 
-             'weight': 5, 'barcode': 6, 'total_stock': 7, 'batch_tracking': 8, 'created': 9
+             'weight': 5, 'barcode': 6, 'available_stock': 7, 'total_stock': 8, 'batch_tracking': 9, 'created': 10
          };
         
         const index = columnIndex[column];
@@ -796,13 +806,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const selectedRows = Array.from(selectedCheckboxes).map(cb => cb.closest('.product-row')).filter(row => row);
         
                  // CSV Headers
-         const headers = ['SKU', 'Name', 'Description', 'Dimensions', 'Weight (kg)', 'Barcode', 'Total Stock', 'Batch Tracking', 'Created Date'];
+         const headers = ['SKU', 'Name', 'Description', 'Dimensions', 'Weight (kg)', 'Barcode', 'Available Stock', 'Total Stock', 'Batch Tracking', 'Created Date'];
          let csvContent = headers.join(',') + '\n';
 
          // CSV Data
          selectedRows.forEach(row => {
              const cells = row.querySelectorAll('td');
-             if (cells.length >= 10) { // Account for checkbox column and new total stock column
+             if (cells.length >= 11) { // Account for checkbox column and both stock columns
                  const rowData = [
                      `"${cells[1].textContent.trim()}"`,  // SKU (skip checkbox column)
                      `"${cells[2].textContent.trim()}"`,  // Name
@@ -810,9 +820,10 @@ document.addEventListener('DOMContentLoaded', function() {
                      `"${cells[4].textContent.trim()}"`,  // Dimensions
                      `"${cells[5].textContent.trim()}"`,  // Weight
                      `"${cells[6].textContent.trim()}"`,  // Barcode
-                     `"${cells[7].textContent.trim()}"`,  // Total Stock
-                     `"${cells[8].textContent.trim()}"`,  // Batch Tracking
-                     `"${cells[9].textContent.trim()}"`   // Created
+                     `"${cells[7].textContent.trim()}"`,  // Available Stock
+                     `"${cells[8].textContent.trim()}"`,  // Total Stock
+                     `"${cells[9].textContent.trim()}"`,  // Batch Tracking
+                     `"${cells[10].textContent.trim()}"`  // Created
                  ];
                  csvContent += rowData.join(',') + '\n';
              }
@@ -1027,13 +1038,13 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
                  // CSV Headers
-         const headers = ['SKU', 'Name', 'Description', 'Dimensions', 'Weight (kg)', 'Barcode', 'Total Stock', 'Batch Tracking', 'Created Date'];
+         const headers = ['SKU', 'Name', 'Description', 'Dimensions', 'Weight (kg)', 'Barcode', 'Available Stock', 'Total Stock', 'Batch Tracking', 'Created Date'];
          let csvContent = headers.join(',') + '\n';
 
          // CSV Data
          visibleRows.forEach(row => {
              const cells = row.querySelectorAll('td');
-             if (cells.length >= 10) {
+             if (cells.length >= 11) {
                  const rowData = [
                      `"${cells[1].textContent.trim()}"`,  // SKU (skip checkbox column)
                      `"${cells[2].textContent.trim()}"`,  // Name
@@ -1041,9 +1052,10 @@ document.addEventListener('DOMContentLoaded', function() {
                      `"${cells[4].textContent.trim()}"`,  // Dimensions
                      `"${cells[5].textContent.trim()}"`,  // Weight
                      `"${cells[6].textContent.trim()}"`,  // Barcode
-                     `"${cells[7].textContent.trim()}"`,  // Total Stock
-                     `"${cells[8].textContent.trim()}"`,  // Batch Tracking
-                     `"${cells[9].textContent.trim()}"`   // Created
+                     `"${cells[7].textContent.trim()}"`,  // Available Stock
+                     `"${cells[8].textContent.trim()}"`,  // Total Stock
+                     `"${cells[9].textContent.trim()}"`,  // Batch Tracking
+                     `"${cells[10].textContent.trim()}"`  // Created
                  ];
                  csvContent += rowData.join(',') + '\n';
              }

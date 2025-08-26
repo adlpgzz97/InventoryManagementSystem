@@ -371,7 +371,8 @@ def products():
         cur.execute("""
             SELECT 
                 p.*,
-                COALESCE(SUM(si.qty_available), 0) as total_stock
+                COALESCE(SUM(si.qty_available), 0) as available_stock,
+                COALESCE(SUM(si.qty_available + si.qty_reserved), 0) as total_stock
             FROM products p
             LEFT JOIN stock_items si ON p.id = si.product_id
             GROUP BY p.id, p.sku, p.name, p.description, p.dimensions, p.weight, p.barcode, p.picture_url, p.batch_tracked, p.created_at
