@@ -1,0 +1,1056 @@
+{% extends "base.html" %}
+
+{% block title %}Products - Inventory Management{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Products</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            {% if current_user.role in ['admin', 'manager'] %}
+            <button type="button" class="btn btn-sm btn-success add-btn" data-type="product">
+                <i class="fas fa-plus"></i> Add Product
+            </button>
+            {% endif %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="export-products">
+                <i class="fas fa-download"></i> Export CSV
+            </button>
+        </div>
+    </div>
+</div>
+
+{% if products %}
+<!-- DEBUG: Products found: {{ products|length }} -->
+<div class="card">
+    <div class="card-header">
+        <div class="row align-items-center">
+            <div class="col-md-4">
+                <h5 class="mb-0"><i class="fas fa-box me-2"></i> Product Inventory</h5>
+            </div>
+            <div class="col-md-8">
+                <div class="row g-2">
+                    <div class="col-md-5">
+                        <div class="input-group input-group-sm">
+                            <input type="text" id="search-products" class="form-control" 
+                                   placeholder="Search products (SKU, name, description)...">
+                            <button class="btn btn-outline-secondary" type="button" id="scan-search-barcode" title="Scan to Search">
+                                <i class="fas fa-qrcode"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <select id="filter-category" class="form-select form-select-sm">
+                            <option value="">All Categories</option>
+                            <option value="widget">Widgets</option>
+                            <option value="gadget">Gadgets</option>
+                            <option value="tool">Tools</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    <div class="col-md-4">
+                        <div class="btn-group btn-group-sm w-100">
+                            <button id="clear-filters" class="btn btn-outline-secondary">
+                                <i class="fas fa-times me-1"></i>Clear
+                            </button>
+                            <button id="bulk-scan-btn" class="btn btn-outline-info" title="Bulk Barcode Scanning">
+                                <i class="fas fa-qrcode me-1"></i>Bulk Scan
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="card-body">
+        <!-- Bulk Actions Toolbar -->
+        <div id="bulk-actions-toolbar" class="alert alert-info" style="display: none;">
+            <div class="row align-items-center">
+                <div class="col">
+                    <strong><span id="selected-count">0</span> item(s) selected</strong>
+                </div>
+                <div class="col-auto">
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-primary" id="bulk-export-selected">
+                            <i class="fas fa-download me-1"></i>Export Selected
+                        </button>
+                        {% if current_user.role in ['admin', 'manager'] %}
+                        <button type="button" class="btn btn-outline-danger" id="bulk-delete-selected">
+                            <i class="fas fa-trash me-1"></i>Delete Selected
+                        </button>
+                        {% endif %}
+                        <button type="button" class="btn btn-outline-secondary" id="clear-selection">
+                            <i class="fas fa-times me-1"></i>Clear Selection
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="table-responsive">
+            <table class="table table-striped">
+                <thead>
+                    <tr>
+                        <th width="40">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="select-all-products">
+                                <label class="form-check-label" for="select-all-products"></label>
+                            </div>
+                        </th>
+                        <th class="sortable" data-column="sku" data-type="text">
+                            SKU <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="name" data-type="text">
+                            Name <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="description" data-type="text">
+                            Description <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="dimensions" data-type="text">
+                            Dimensions <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="weight" data-type="number">
+                            Weight <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="barcode" data-type="text">
+                            Barcode <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="batch_tracking" data-type="text">
+                            Batch Tracking <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="created" data-type="date">
+                            Created <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="products-tbody">
+                    <!-- DEBUG: Found {{ products|length }} products -->
+                    {% for product in products %}
+                    <tr class="product-row" 
+                        data-sku="{{ product.sku|lower }}" 
+                        data-name="{{ product.name|lower }}" 
+                        data-description="{{ (product.description or '')|lower }}" 
+                        data-category="{% if 'widget' in product.name|lower %}widget{% elif 'gadget' in product.name|lower %}gadget{% elif 'tool' in product.name|lower %}tool{% else %}other{% endif %}">
+                        <td>
+                            <div class="form-check">
+                                <input class="form-check-input product-checkbox" type="checkbox" value="{{ product.id }}" id="product-{{ loop.index }}">
+                                <label class="form-check-label" for="product-{{ loop.index }}"></label>
+                            </div>
+                        </td>
+                        <td><code>{{ product.sku }}</code></td>
+                        <td><strong>{{ product.name }}</strong></td>
+                        <td>{{ product.description or 'N/A' }}</td>
+                        <td>{{ product.dimensions or 'N/A' }}</td>
+                        <td>
+                            {% if product.weight %}
+                                {{ "%.2f"|format(product.weight) }} kg
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        <td>{{ product.barcode or 'N/A' }}</td>
+                        <td>
+                            {% if product.batch_tracked %}
+                                <span class="badge bg-info">
+                                    <i class="fas fa-tags me-1"></i>Enabled
+                                </span>
+                            {% else %}
+                                <span class="badge bg-secondary">
+                                    <i class="fas fa-box me-1"></i>Disabled
+                                </span>
+                            {% endif %}
+                        </td>
+                                                 <td>
+                             {% if product.created_at %}
+                                 {{ product.created_at.strftime('%Y-%m-%d') if product.created_at else 'N/A' }}
+                             {% else %}
+                                 N/A
+                             {% endif %}
+                         </td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary btn-sm edit-btn" 
+                                        data-type="product" 
+                                        data-id="{{ product.id }}"
+                                        title="Edit Product">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-outline-danger btn-sm delete-btn" 
+                                        data-type="product" 
+                                        data-id="{{ product.id }}"
+                                        data-name="{{ product.name }}"
+                                        title="Delete Product">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer">
+        <!-- Pagination Controls -->
+        <div class="row align-items-center mb-3">
+            <div class="col-md-3">
+                <div class="d-flex align-items-center">
+                    <label for="items-per-page" class="form-label me-2 mb-0 small">Show:</label>
+                    <select id="items-per-page" class="form-select form-select-sm" style="width: auto;">
+                        <option value="10">10</option>
+                        <option value="25" selected>25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="all">All</option>
+                    </select>
+                    <span class="ms-2 small text-muted">per page</span>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <nav aria-label="Products pagination">
+                    <ul class="pagination pagination-sm justify-content-center mb-0" id="pagination-controls">
+                        <!-- Pagination buttons will be generated by JavaScript -->
+                    </ul>
+                </nav>
+            </div>
+            <div class="col-md-3">
+                <div class="text-end">
+                    <small class="text-muted">
+                        <span id="pagination-info">Showing 1-25 of {{ products|length }}</span>
+                    </small>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Table Controls -->
+        <div class="row align-items-center">
+            <div class="col-md-4">
+                <div class="btn-group btn-group-sm">
+                    <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-columns me-1"></i>Columns
+                    </button>
+                    <ul class="dropdown-menu" id="column-visibility-menu">
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="sku"> SKU</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="name"> Name</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="description"> Description</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="dimensions"> Dimensions</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="weight"> Weight</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="barcode"> Barcode</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="batch_tracking"> Batch Tracking</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="created"> Created</label></li>
+                    </ul>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm ms-1" id="reset-table-settings">
+                    <i class="fas fa-undo me-1"></i>Reset
+                </button>
+            </div>
+            <div class="col-md-4 text-center">
+                <small class="text-muted">
+                    <span class="badge bg-success">Full CRUD Available</span>
+                    <span class="badge bg-info">Sortable Columns</span>
+                </small>
+            </div>
+            <div class="col-md-4 text-end">
+                <small class="text-muted">
+                    <span class="badge bg-primary">●</span> Widgets
+                    <span class="badge bg-info">●</span> Gadgets  
+                    <span class="badge bg-warning">●</span> Tools
+                    <span class="badge bg-secondary">●</span> Other
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<!-- DEBUG: No products found -->
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-box-seam display-1 text-muted"></i>
+        <h4 class="text-muted mt-3">No products found</h4>
+        <p class="text-muted">Get started by adding your first product to the inventory.</p>
+        {% if current_user.role in ['admin', 'manager'] %}
+        <button class="btn btn-success add-btn" data-type="product">
+            <i class="fas fa-plus"></i> Add First Product
+        </button>
+        {% endif %}
+        <br><br>
+        <small class="text-muted">
+            <span class="badge bg-info">Phase 2: Product management forms coming soon</span>
+        </small>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Products page JavaScript loaded');
+    console.log('Product rows found:', document.querySelectorAll('.product-row').length);
+    
+    const searchInput = document.getElementById('search-products');
+    const categoryFilter = document.getElementById('filter-category');
+    const clearFiltersBtn = document.getElementById('clear-filters');
+    const productRows = document.querySelectorAll('.product-row');
+    const visibleCounter = document.getElementById('visible-products');
+    
+    // Pagination variables
+    let currentPage = 1;
+    let itemsPerPage = 25;
+    let filteredRows = Array.from(productRows);
+    let currentSort = { column: null, direction: 'asc' };
+    
+    // Bulk Operations for Products - Declare variables first
+    const selectAllCheckbox = document.getElementById('select-all-products');
+    const productCheckboxes = document.querySelectorAll('.product-checkbox');
+    const bulkToolbar = document.getElementById('bulk-actions-toolbar');
+    const selectedCountSpan = document.getElementById('selected-count');
+    const bulkDeleteBtn = document.getElementById('bulk-delete-selected');
+    const bulkExportBtn = document.getElementById('bulk-export-selected');
+    const clearSelectionBtn = document.getElementById('clear-selection');
+
+    // Pagination functions
+    function updatePagination() {
+        const totalItems = filteredRows.length;
+        const totalPages = itemsPerPage === 'all' ? 1 : Math.ceil(totalItems / itemsPerPage);
+        
+        // Update pagination info
+        const startItem = itemsPerPage === 'all' ? 1 : (currentPage - 1) * itemsPerPage + 1;
+        const endItem = itemsPerPage === 'all' ? totalItems : Math.min(currentPage * itemsPerPage, totalItems);
+        
+        const paginationInfo = document.getElementById('pagination-info');
+        if (paginationInfo) {
+            paginationInfo.textContent = `Showing ${startItem}-${endItem} of ${totalItems}`;
+        }
+        
+        // Generate pagination controls
+        const paginationControls = document.getElementById('pagination-controls');
+        if (!paginationControls) return;
+        paginationControls.innerHTML = '';
+        
+        if (itemsPerPage === 'all' || totalPages <= 1) {
+            return;
+        }
+        
+        // Previous button
+        const prevButton = createPaginationButton('‹', currentPage - 1, currentPage === 1);
+        paginationControls.appendChild(prevButton);
+        
+        // Page numbers
+        const startPage = Math.max(1, currentPage - 2);
+        const endPage = Math.min(totalPages, currentPage + 2);
+        
+        if (startPage > 1) {
+            paginationControls.appendChild(createPaginationButton('1', 1));
+            if (startPage > 2) {
+                const ellipsis = document.createElement('li');
+                ellipsis.className = 'page-item disabled';
+                ellipsis.innerHTML = '<span class="page-link">...</span>';
+                paginationControls.appendChild(ellipsis);
+            }
+        }
+        
+        for (let i = startPage; i <= endPage; i++) {
+            paginationControls.appendChild(createPaginationButton(i, i, false, i === currentPage));
+        }
+        
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                const ellipsis = document.createElement('li');
+                ellipsis.className = 'page-item disabled';
+                ellipsis.innerHTML = '<span class="page-link">...</span>';
+                paginationControls.appendChild(ellipsis);
+            }
+            paginationControls.appendChild(createPaginationButton(totalPages, totalPages));
+        }
+        
+        // Next button
+        const nextButton = createPaginationButton('›', currentPage + 1, currentPage === totalPages);
+        paginationControls.appendChild(nextButton);
+    }
+    
+    function createPaginationButton(text, page, disabled = false, active = false) {
+        const li = document.createElement('li');
+        li.className = `page-item ${disabled ? 'disabled' : ''} ${active ? 'active' : ''}`;
+        
+        const button = document.createElement(disabled ? 'span' : 'button');
+        button.className = 'page-link';
+        button.textContent = text;
+        
+        if (!disabled) {
+            button.addEventListener('click', () => {
+                currentPage = page;
+                applyPagination();
+            });
+        }
+        
+        li.appendChild(button);
+        return li;
+    }
+    
+    function applyPagination() {
+        const tbody = document.getElementById('products-tbody');
+        if (!tbody) return;
+        
+        // Determine which rows to show
+        let rowsToShow;
+        if (itemsPerPage === 'all') {
+            rowsToShow = filteredRows;
+        } else {
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            rowsToShow = filteredRows.slice(startIndex, endIndex);
+        }
+        
+        // Physically reorder the DOM elements to match the sorted array
+        // First, remove all rows from the tbody
+        while (tbody.firstChild) {
+            tbody.removeChild(tbody.firstChild);
+        }
+        
+        // Then add them back in the correct order
+        rowsToShow.forEach(row => {
+            tbody.appendChild(row);
+        });
+        
+        updatePagination();
+        updateBulkToolbar();
+    }
+    
+    function filterProducts() {
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        const categoryTerm = categoryFilter ? categoryFilter.value : '';
+        
+        filteredRows = Array.from(productRows).filter(row => {
+            const sku = row.getAttribute('data-sku') || '';
+            const name = row.getAttribute('data-name') || '';
+            const description = row.getAttribute('data-description') || '';
+            const category = row.getAttribute('data-category') || '';
+            
+            const matchesSearch = !searchTerm || 
+                sku.includes(searchTerm) ||
+                name.includes(searchTerm) ||
+                description.includes(searchTerm);
+            
+            const matchesCategory = !categoryTerm || category === categoryTerm;
+            
+            return matchesSearch && matchesCategory;
+        });
+        
+        // Reset to first page when filtering
+        currentPage = 1;
+        applyPagination();
+    }
+
+    // Sorting functions
+    function sortTable(column, dataType) {
+        console.log('sortTable called with:', column, dataType);
+        const direction = currentSort.column === column && currentSort.direction === 'asc' ? 'desc' : 'asc';
+        currentSort = { column, direction };
+        console.log('Sort direction:', direction);
+        
+        // Update sort icons
+        document.querySelectorAll('.sortable i').forEach(icon => {
+            icon.className = 'fas fa-sort text-muted';
+        });
+        
+        const headerCell = document.querySelector(`th[data-column="${column}"] i`);
+        if (headerCell) {
+            headerCell.className = `fas fa-sort-${direction === 'asc' ? 'up' : 'down'} text-primary`;
+        }
+        
+        // Sort filtered rows
+        filteredRows.sort((a, b) => {
+            const aValue = getCellValue(a, column, dataType);
+            const bValue = getCellValue(b, column, dataType);
+            
+            if (aValue === bValue) return 0;
+            
+            let result;
+            if (dataType === 'number') {
+                result = parseFloat(aValue || 0) - parseFloat(bValue || 0);
+            } else if (dataType === 'date') {
+                result = new Date(aValue || 0) - new Date(bValue || 0);
+            } else {
+                result = aValue.localeCompare(bValue);
+            }
+            
+            return direction === 'asc' ? result : -result;
+        });
+        
+        // Reset to first page and apply pagination
+        currentPage = 1;
+        applyPagination();
+    }
+    
+    function getCellValue(row, column, dataType) {
+        const columnIndex = {
+            'sku': 1, 'name': 2, 'description': 3, 'dimensions': 4, 
+            'weight': 5, 'barcode': 6, 'batch_tracking': 7, 'created': 8
+        };
+        
+        const cell = row.cells[columnIndex[column]];
+        if (!cell) return '';
+        
+        if (dataType === 'number') {
+            const text = cell.textContent.trim();
+            if (text === 'N/A' || !text) {
+                return 0;
+            }
+            return parseFloat(text.replace(/[^\d.-]/g, '')) || 0;
+        }
+        
+        // For batch tracking, extract the text from the badge
+        if (column === 'batch_tracking') {
+            const badge = cell.querySelector('.badge');
+            if (badge) {
+                return badge.textContent.trim().toLowerCase();
+            }
+        }
+        
+        // For date columns, handle 'N/A' values
+        if (dataType === 'date') {
+            const text = cell.textContent.trim();
+            if (text === 'N/A' || !text) {
+                return '1970-01-01'; // Use a very old date for N/A values
+            }
+            return text;
+        }
+        
+        return cell.textContent.trim();
+    }
+    
+    // Column visibility functions
+    function toggleColumnVisibility(column, visible) {
+        const columnIndex = {
+            'sku': 1, 'name': 2, 'description': 3, 'dimensions': 4, 
+            'weight': 5, 'barcode': 6, 'batch_tracking': 7, 'created': 8
+        };
+        
+        const index = columnIndex[column];
+        if (index === undefined) return;
+        
+        // Toggle header
+        const header = document.querySelector(`thead th:nth-child(${index + 1})`);
+        if (header) {
+            header.style.display = visible ? '' : 'none';
+        }
+        
+        // Toggle all body cells
+        document.querySelectorAll(`tbody td:nth-child(${index + 1})`).forEach(cell => {
+            cell.style.display = visible ? '' : 'none';
+        });
+    }
+
+    // Event listeners
+    if (searchInput) {
+        searchInput.addEventListener('input', filterProducts);
+    }
+    if (categoryFilter) {
+        categoryFilter.addEventListener('change', filterProducts);
+    }
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', function() {
+            if (searchInput) searchInput.value = '';
+            if (categoryFilter) categoryFilter.value = '';
+            filterProducts();
+        });
+    }
+    
+    // Items per page change
+    const itemsPerPageSelect = document.getElementById('items-per-page');
+    if (itemsPerPageSelect) {
+        itemsPerPageSelect.addEventListener('change', function() {
+            itemsPerPage = this.value === 'all' ? 'all' : parseInt(this.value);
+            currentPage = 1;
+            applyPagination();
+        });
+    }
+    
+    // Initialize pagination only if elements exist
+    if (productRows.length > 0) {
+        applyPagination();
+    }
+    
+    // Sortable column headers
+    document.querySelectorAll('.sortable').forEach(header => {
+        header.style.cursor = 'pointer';
+        header.addEventListener('click', function() {
+            console.log('Sort header clicked:', this.getAttribute('data-column'));
+            const column = this.getAttribute('data-column');
+            const dataType = this.getAttribute('data-type');
+            sortTable(column, dataType);
+        });
+    });
+    
+    // Column visibility controls
+    document.querySelectorAll('#column-visibility-menu input[type="checkbox"]').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const column = this.getAttribute('data-column');
+            toggleColumnVisibility(column, this.checked);
+        });
+    });
+    
+    // Reset table settings
+    document.getElementById('reset-table-settings')?.addEventListener('click', function() {
+        // Reset column visibility
+        document.querySelectorAll('#column-visibility-menu input[type="checkbox"]').forEach(checkbox => {
+            checkbox.checked = true;
+            toggleColumnVisibility(checkbox.getAttribute('data-column'), true);
+        });
+        
+        // Reset sorting
+        currentSort = { column: null, direction: 'asc' };
+        document.querySelectorAll('.sortable i').forEach(icon => {
+            icon.className = 'fas fa-sort text-muted';
+        });
+        
+        // Reset pagination
+        itemsPerPageSelect.value = '25';
+        itemsPerPage = 25;
+        currentPage = 1;
+        
+        filterProducts();
+    });
+
+    // Highlight search terms
+    function highlightSearchTerms() {
+        if (!searchInput || !searchInput.value) return;
+        
+        const searchTerm = searchInput.value.toLowerCase();
+        if (searchTerm.length < 2) return;
+
+        productRows.forEach(row => {
+            if (row.style.display !== 'none') {
+                const cells = row.querySelectorAll('td');
+                cells.forEach(cell => {
+                    if (cell.querySelector('.btn-group')) return; // Skip action buttons
+                    
+                    const originalText = cell.textContent;
+                    const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+                    const highlightedText = originalText.replace(regex, '<mark>$1</mark>');
+                    
+                    if (highlightedText !== originalText) {
+                        cell.innerHTML = highlightedText;
+                    }
+                });
+            }
+        });
+    }
+
+    // Enhanced search with highlighting
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            filterProducts();
+            // Clear previous highlights
+            productRows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                cells.forEach(cell => {
+                    if (cell.querySelector('.btn-group')) return;
+                    const text = cell.textContent;
+                    cell.innerHTML = text;
+                });
+            });
+            // Add new highlights
+            if (this.value.length >= 2) {
+                highlightSearchTerms();
+            }
+        });
+    }
+
+    // Update bulk toolbar visibility and count
+    function updateBulkToolbar() {
+        const selectedBoxes = document.querySelectorAll('.product-checkbox:checked');
+        const count = selectedBoxes.length;
+        
+        if (count > 0) {
+            bulkToolbar.style.display = 'block';
+            selectedCountSpan.textContent = count;
+        } else {
+            bulkToolbar.style.display = 'none';
+        }
+        
+        // Update select all checkbox state
+        if (selectAllCheckbox) {
+            const visibleCheckboxes = Array.from(productCheckboxes).filter(cb => {
+                const row = cb.closest('.product-row');
+                return row && row.style.display !== 'none';
+            });
+            const visibleChecked = visibleCheckboxes.filter(cb => cb.checked);
+            
+            selectAllCheckbox.checked = visibleCheckboxes.length > 0 && visibleChecked.length === visibleCheckboxes.length;
+            selectAllCheckbox.indeterminate = visibleChecked.length > 0 && visibleChecked.length < visibleCheckboxes.length;
+        }
+    }
+
+    // Select All functionality
+    if (selectAllCheckbox) {
+        selectAllCheckbox.addEventListener('change', function() {
+            const visibleCheckboxes = Array.from(productCheckboxes).filter(cb => {
+                const row = cb.closest('.product-row');
+                return row && row.style.display !== 'none';
+            });
+            
+            visibleCheckboxes.forEach(cb => {
+                cb.checked = this.checked;
+            });
+            updateBulkToolbar();
+        });
+    }
+
+    // Individual checkbox changes
+    productCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', updateBulkToolbar);
+    });
+
+    // Clear selection
+    if (clearSelectionBtn) {
+        clearSelectionBtn.addEventListener('click', function() {
+            productCheckboxes.forEach(cb => cb.checked = false);
+            updateBulkToolbar();
+        });
+    }
+
+    // Bulk delete functionality
+    if (bulkDeleteBtn) {
+        bulkDeleteBtn.addEventListener('click', function() {
+            const selectedBoxes = document.querySelectorAll('.product-checkbox:checked');
+            const selectedIds = Array.from(selectedBoxes).map(cb => cb.value);
+            
+            if (selectedIds.length === 0) {
+                alert('No products selected for deletion.');
+                return;
+            }
+            
+            const confirmMsg = `Are you sure you want to delete ${selectedIds.length} product(s)? This action cannot be undone.`;
+            if (confirm(confirmMsg)) {
+                bulkDeleteProducts(selectedIds);
+            }
+        });
+    }
+
+    // Bulk export selected
+    if (bulkExportBtn) {
+        bulkExportBtn.addEventListener('click', function() {
+            const selectedBoxes = document.querySelectorAll('.product-checkbox:checked');
+            if (selectedBoxes.length === 0) {
+                alert('No products selected for export.');
+                return;
+            }
+            exportSelectedToCSV(selectedBoxes);
+        });
+    }
+
+    function bulkDeleteProducts(productIds) {
+        const deletePromises = productIds.map(id => {
+            return fetch(`/delete/product/${id}`, {
+                method: 'POST'
+            });
+        });
+
+        // Show loading state
+        const originalText = bulkDeleteBtn.innerHTML;
+        bulkDeleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deleting...';
+        bulkDeleteBtn.disabled = true;
+
+        Promise.all(deletePromises)
+            .then(responses => {
+                const failed = responses.filter(r => !r.ok);
+                if (failed.length > 0) {
+                    alert(`${failed.length} product(s) could not be deleted. Please try again.`);
+                } else {
+                    // Refresh the page to show updated data
+                    location.reload();
+                }
+            })
+            .catch(error => {
+                alert('Error deleting products: ' + error.message);
+            })
+            .finally(() => {
+                bulkDeleteBtn.innerHTML = originalText;
+                bulkDeleteBtn.disabled = false;
+            });
+    }
+
+    function exportSelectedToCSV(selectedCheckboxes) {
+        const selectedRows = Array.from(selectedCheckboxes).map(cb => cb.closest('.product-row')).filter(row => row);
+        
+        // CSV Headers
+        const headers = ['SKU', 'Name', 'Description', 'Dimensions', 'Weight (kg)', 'Barcode', 'Batch Tracking', 'Created Date'];
+        let csvContent = headers.join(',') + '\n';
+
+        // CSV Data
+        selectedRows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 9) { // Account for checkbox column and new batch tracking column
+                const rowData = [
+                    `"${cells[1].textContent.trim()}"`,  // SKU (skip checkbox column)
+                    `"${cells[2].textContent.trim()}"`,  // Name
+                    `"${cells[3].textContent.trim()}"`,  // Description
+                    `"${cells[4].textContent.trim()}"`,  // Dimensions
+                    `"${cells[5].textContent.trim()}"`,  // Weight
+                    `"${cells[6].textContent.trim()}"`,  // Barcode
+                    `"${cells[7].textContent.trim()}"`,  // Batch Tracking
+                    `"${cells[8].textContent.trim()}"`   // Created
+                ];
+                csvContent += rowData.join(',') + '\n';
+            }
+        });
+
+        // Download CSV
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        if (link.download !== undefined) {
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `selected_products_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Show success feedback
+            const originalText = bulkExportBtn.innerHTML;
+            bulkExportBtn.innerHTML = '<i class="fas fa-check me-1"></i>Exported!';
+            bulkExportBtn.classList.remove('btn-outline-primary');
+            bulkExportBtn.classList.add('btn-success');
+            setTimeout(() => {
+                bulkExportBtn.innerHTML = originalText;
+                bulkExportBtn.classList.remove('btn-success');
+                bulkExportBtn.classList.add('btn-outline-primary');
+            }, 2000);
+        }
+    }
+
+    // Initialize pagination (moved to after element checks)
+    
+    // Barcode scanning functionality
+    const scanSearchBtn = document.getElementById('scan-search-barcode');
+    const bulkScanBtn = document.getElementById('bulk-scan-btn');
+    
+    if (scanSearchBtn && window.barcodeScanner) {
+        scanSearchBtn.addEventListener('click', function() {
+            window.barcodeScanner.show((barcode, scanData) => {
+                // Set barcode as search term
+                searchInput.value = barcode;
+                filterProducts();
+                
+                // Highlight the found product
+                const foundRows = Array.from(productRows).filter(row => {
+                    const barcodeCell = row.cells[6]; // Barcode column
+                    return barcodeCell && barcodeCell.textContent.trim() === barcode;
+                });
+                
+                if (foundRows.length > 0) {
+                    // Flash highlight the found product
+                    foundRows.forEach(row => {
+                        row.style.backgroundColor = '#d4edda';
+                        setTimeout(() => {
+                            row.style.backgroundColor = '';
+                        }, 2000);
+                    });
+                } else {
+                    // Show not found message
+                    const alertDiv = document.createElement('div');
+                    alertDiv.className = 'alert alert-warning alert-dismissible fade show mt-2';
+                    alertDiv.innerHTML = `
+                        <i class="fas fa-search me-2"></i>
+                        No product found with barcode: <strong>${barcode}</strong>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    `;
+                    document.querySelector('.card-body').insertBefore(alertDiv, document.querySelector('.table-responsive'));
+                    
+                    // Auto-dismiss after 5 seconds
+                    setTimeout(() => {
+                        if (alertDiv.parentNode) {
+                            alertDiv.remove();
+                        }
+                    }, 5000);
+                }
+            });
+        });
+    }
+    
+    if (bulkScanBtn && window.barcodeScanner) {
+        bulkScanBtn.addEventListener('click', function() {
+            // Show bulk scanning modal
+            showBulkScanModal();
+        });
+    }
+    
+    function showBulkScanModal() {
+        // Create a custom modal for bulk scanning
+        const bulkModal = document.createElement('div');
+        bulkModal.className = 'modal fade';
+        bulkModal.innerHTML = `
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">
+                            <i class="fas fa-qrcode me-2"></i>Bulk Barcode Scanning
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="alert alert-info">
+                            <i class="fas fa-info-circle me-2"></i>
+                            Scan multiple barcodes to quickly find and select products. Each scan will be added to your selection.
+                        </div>
+                        <div id="bulk-scan-results" class="mb-3">
+                            <h6>Scanned Products</h6>
+                            <div id="bulk-scan-list" class="list-group"></div>
+                        </div>
+                        <button class="btn btn-primary" id="start-bulk-scan">
+                            <i class="fas fa-qrcode me-2"></i>Start Bulk Scanning
+                        </button>
+                        <button class="btn btn-success ms-2" id="select-scanned-products" disabled>
+                            <i class="fas fa-check me-2"></i>Select All Scanned Products
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `;
+        
+        document.body.appendChild(bulkModal);
+        const modal = new bootstrap.Modal(bulkModal);
+        modal.show();
+        
+        // Handle bulk scanning
+        const startBtn = bulkModal.querySelector('#start-bulk-scan');
+        const selectBtn = bulkModal.querySelector('#select-scanned-products');
+        const scanList = bulkModal.querySelector('#bulk-scan-list');
+        let scannedProducts = [];
+        
+        startBtn.addEventListener('click', function() {
+            window.barcodeScanner.show((barcode, scanData) => {
+                // Find product with this barcode
+                const productRow = Array.from(productRows).find(row => {
+                    const barcodeCell = row.cells[6];
+                    return barcodeCell && barcodeCell.textContent.trim() === barcode;
+                });
+                
+                if (productRow && !scannedProducts.find(p => p.barcode === barcode)) {
+                    const productName = productRow.cells[2].textContent.trim();
+                    const productSku = productRow.cells[1].textContent.trim();
+                    const checkbox = productRow.querySelector('.product-checkbox');
+                    
+                    scannedProducts.push({
+                        barcode: barcode,
+                        name: productName,
+                        sku: productSku,
+                        row: productRow,
+                        checkbox: checkbox
+                    });
+                    
+                    // Add to scan results
+                    const listItem = document.createElement('div');
+                    listItem.className = 'list-group-item d-flex justify-content-between align-items-center';
+                    listItem.innerHTML = `
+                        <div>
+                            <strong>${productName}</strong> (${productSku})
+                            <br><small class="text-muted">Barcode: ${barcode}</small>
+                        </div>
+                        <span class="badge bg-success">Found</span>
+                    `;
+                    scanList.appendChild(listItem);
+                    
+                    selectBtn.disabled = false;
+                }
+            });
+        });
+        
+        selectBtn.addEventListener('click', function() {
+            // Select all scanned products
+            scannedProducts.forEach(product => {
+                if (product.checkbox) {
+                    product.checkbox.checked = true;
+                }
+                // Highlight the row
+                product.row.style.backgroundColor = '#d4edda';
+                setTimeout(() => {
+                    product.row.style.backgroundColor = '';
+                }, 3000);
+            });
+            
+            updateBulkToolbar();
+            modal.hide();
+        });
+        
+        // Clean up when modal is closed
+        bulkModal.addEventListener('hidden.bs.modal', function() {
+            document.body.removeChild(bulkModal);
+        });
+    }
+
+    // Update toolbar when filters change
+    const originalFilterFunction = filterProducts;
+    window.filterProducts = function() {
+        originalFilterFunction();
+        updateBulkToolbar();
+    };
+
+    // CSV Export functionality
+    const exportBtn = document.getElementById('export-products');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', function() {
+            exportToCSV();
+        });
+    }
+
+    function exportToCSV() {
+        const visibleRows = Array.from(productRows).filter(row => row.style.display !== 'none');
+        
+        if (visibleRows.length === 0) {
+            alert('No products to export. Please adjust your filters.');
+            return;
+        }
+
+        // CSV Headers
+        const headers = ['SKU', 'Name', 'Description', 'Dimensions', 'Weight (kg)', 'Barcode', 'Batch Tracking', 'Created Date'];
+        let csvContent = headers.join(',') + '\n';
+
+        // CSV Data
+        visibleRows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 8) {
+                const rowData = [
+                    `"${cells[1].textContent.trim()}"`,  // SKU (skip checkbox column)
+                    `"${cells[2].textContent.trim()}"`,  // Name
+                    `"${cells[3].textContent.trim()}"`,  // Description
+                    `"${cells[4].textContent.trim()}"`,  // Dimensions
+                    `"${cells[5].textContent.trim()}"`,  // Weight
+                    `"${cells[6].textContent.trim()}"`,  // Barcode
+                    `"${cells[7].textContent.trim()}"`,  // Batch Tracking
+                    `"${cells[8].textContent.trim()}"`   // Created
+                ];
+                csvContent += rowData.join(',') + '\n';
+            }
+        });
+
+        // Download CSV
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        if (link.download !== undefined) {
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `products_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Show success feedback
+            const originalText = exportBtn.innerHTML;
+            exportBtn.innerHTML = '<i class="fas fa-check"></i> Exported!';
+            exportBtn.classList.remove('btn-outline-secondary');
+            exportBtn.classList.add('btn-success');
+            setTimeout(() => {
+                exportBtn.innerHTML = originalText;
+                exportBtn.classList.remove('btn-success');
+                exportBtn.classList.add('btn-outline-secondary');
+            }, 2000);
+        }
+    }
+});
+</script>
+{% endblock %}

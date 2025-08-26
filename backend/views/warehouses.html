@@ -1,0 +1,361 @@
+{% extends "base.html" %}
+
+{% block title %}Warehouses - Inventory Management{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Warehouses</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            {% if current_user.role in ['admin', 'manager'] %}
+            <button type="button" class="btn btn-sm btn-success add-btn" data-type="warehouse">
+                <i class="fas fa-plus"></i> Add Warehouse
+            </button>
+            {% endif %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="export-warehouses">
+                <i class="fas fa-download"></i> Export CSV
+            </button>
+        </div>
+    </div>
+</div>
+
+{% if warehouses %}
+<!-- Search and Filter Controls -->
+<div class="card mb-3">
+    <div class="card-body py-2">
+        <div class="row align-items-center">
+            <div class="col-md-3">
+                <h6 class="mb-0"><i class="fas fa-search me-2"></i>Find Warehouses</h6>
+            </div>
+            <div class="col-md-9">
+                <div class="row g-2">
+                    <div class="col-md-6">
+                        <input type="text" id="search-warehouses" class="form-control form-control-sm" 
+                               placeholder="Search warehouses (name, address, location codes)...">
+                    </div>
+                    <div class="col-md-3">
+                        <select id="filter-size" class="form-select form-select-sm">
+                            <option value="">All Sizes</option>
+                            <option value="small">Small (1-5 locations)</option>
+                            <option value="medium">Medium (6-15 locations)</option>
+                            <option value="large">Large (16+ locations)</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <button id="clear-warehouse-filters" class="btn btn-outline-secondary btn-sm w-100">
+                            <i class="fas fa-times me-1"></i>Clear
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="row" id="warehouses-container">
+    {% for warehouse in warehouses %}
+    <div class="col-md-6 mb-4 warehouse-card" 
+         data-name="{{ warehouse.name|lower }}"
+         data-address="{{ (warehouse.address or '')|lower }}"
+         data-location-count="{{ (warehouse.locations|length) if warehouse.locations else 0 }}"
+         data-size="{% if warehouse.locations and warehouse.locations|length > 15 %}large{% elif warehouse.locations and warehouse.locations|length > 5 %}medium{% else %}small{% endif %}"
+         data-locations="{% if warehouse.locations %}{% for loc in warehouse.locations %}{{ loc.aisle }}{{ loc.bin }} {% endfor %}{% endif %}">
+        <div class="card">
+            <div class="card-header">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0">
+                        <i class="bi bi-building"></i> {{ warehouse.name }}
+                    </h5>
+                    <div class="btn-group btn-group-sm">
+                        <button class="btn btn-outline-primary edit-btn" 
+                                data-type="warehouse" 
+                                data-id="{{ warehouse.id }}"
+                                title="Edit Warehouse">
+                            <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-outline-danger delete-btn" 
+                                data-type="warehouse" 
+                                data-id="{{ warehouse.id }}"
+                                data-name="{{ warehouse.name }}"
+                                title="Delete Warehouse">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+            <div class="card-body">
+                <p class="card-text">
+                    <strong>Address:</strong><br>
+                    {{ warehouse.address or 'No address specified' }}
+                </p>
+                
+                {% if warehouse.locations %}
+                <h6><i class="bi bi-geo-alt"></i> Storage Locations</h6>
+                <div class="row">
+                    {% for location in warehouse.locations %}
+                    <div class="col-6 col-md-4 mb-2">
+                        <span class="badge bg-light text-dark border">
+                            {{ location.aisle }}{{ location.bin }}
+                        </span>
+                    </div>
+                    {% endfor %}
+                </div>
+                
+                <div class="mt-3">
+                    <small class="text-muted">
+                        Total locations: {{ warehouse.locations|length }}
+                    </small>
+                </div>
+                {% else %}
+                <div class="text-center py-3">
+                    <i class="bi bi-geo-alt text-muted"></i>
+                    <p class="text-muted small mb-0">No storage locations defined</p>
+                </div>
+                {% endif %}
+            </div>
+            <div class="card-footer">
+                <div class="btn-group btn-group-sm w-100">
+                    <button class="btn btn-outline-primary" disabled>
+                        <i class="bi bi-plus-circle"></i> Add Location
+                    </button>
+                    <button class="btn btn-outline-info" disabled>
+                        <i class="bi bi-boxes"></i> View Stock
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<!-- Summary Footer -->
+<div class="card mt-3">
+    <div class="card-body py-2">
+        <div class="row align-items-center">
+            <div class="col">
+                <small class="text-muted">
+                    Showing <span id="visible-warehouses">{{ warehouses|length }}</span> of {{ warehouses|length }} warehouse(s).
+                    <span class="badge bg-success">Full CRUD Available</span>
+                </small>
+            </div>
+            <div class="col-auto">
+                <small class="text-muted">
+                    <span class="badge bg-primary">●</span> Small (1-5)
+                    <span class="badge bg-info">●</span> Medium (6-15)
+                    <span class="badge bg-success">●</span> Large (16+)
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-building display-1 text-muted"></i>
+        <h4 class="text-muted mt-3">No warehouses found</h4>
+        <p class="text-muted">Create your first warehouse to start organizing your inventory.</p>
+        {% if current_user.role in ['admin', 'manager'] %}
+        <button class="btn btn-success add-btn" data-type="warehouse">
+            <i class="fas fa-plus"></i> Create First Warehouse
+        </button>
+        {% endif %}
+        <br><br>
+        <small class="text-muted">
+            <span class="badge bg-info">Phase 2: Warehouse management forms coming soon</span>
+        </small>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('search-warehouses');
+    const sizeFilter = document.getElementById('filter-size');
+    const clearFiltersBtn = document.getElementById('clear-warehouse-filters');
+    const warehouseCards = document.querySelectorAll('.warehouse-card');
+    const visibleCounter = document.getElementById('visible-warehouses');
+
+    function filterWarehouses() {
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        const sizeTerm = sizeFilter ? sizeFilter.value : '';
+        let visibleCount = 0;
+
+        warehouseCards.forEach(card => {
+            const name = card.getAttribute('data-name') || '';
+            const address = card.getAttribute('data-address') || '';
+            const locations = card.getAttribute('data-locations') || '';
+            const size = card.getAttribute('data-size') || '';
+            
+            const matchesSearch = !searchTerm || 
+                name.includes(searchTerm) ||
+                address.includes(searchTerm) ||
+                locations.includes(searchTerm);
+            
+            const matchesSize = !sizeTerm || size === sizeTerm;
+            
+            if (matchesSearch && matchesSize) {
+                card.style.display = '';
+                visibleCount++;
+            } else {
+                card.style.display = 'none';
+            }
+        });
+
+        // Update counter
+        if (visibleCounter) {
+            visibleCounter.textContent = visibleCount;
+        }
+
+        // Reorganize grid layout for hidden items
+        const container = document.getElementById('warehouses-container');
+        if (container) {
+            // Reset grid layout
+            container.style.display = 'flex';
+            container.style.flexWrap = 'wrap';
+        }
+    }
+
+    // Event listeners
+    if (searchInput) {
+        searchInput.addEventListener('input', filterWarehouses);
+    }
+    if (sizeFilter) {
+        sizeFilter.addEventListener('change', filterWarehouses);
+    }
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', function() {
+            if (searchInput) searchInput.value = '';
+            if (sizeFilter) sizeFilter.value = '';
+            filterWarehouses();
+        });
+    }
+
+    // Highlight search terms in cards
+    function highlightSearchTerms() {
+        if (!searchInput || !searchInput.value) return;
+        
+        const searchTerm = searchInput.value.toLowerCase();
+        if (searchTerm.length < 2) return;
+
+        warehouseCards.forEach(card => {
+            if (card.style.display !== 'none') {
+                const textElements = card.querySelectorAll('h5, p, .badge');
+                textElements.forEach(element => {
+                    if (element.querySelector('.btn')) return; // Skip button containers
+                    
+                    const originalText = element.textContent;
+                    const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+                    const highlightedText = originalText.replace(regex, '<mark>$1</mark>');
+                    
+                    if (highlightedText !== originalText) {
+                        element.innerHTML = highlightedText;
+                    }
+                });
+            }
+        });
+    }
+
+    // Enhanced search with highlighting
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            filterWarehouses();
+            // Clear previous highlights
+            warehouseCards.forEach(card => {
+                const textElements = card.querySelectorAll('h5, p, .badge');
+                textElements.forEach(element => {
+                    if (element.querySelector('.btn')) return;
+                    const text = element.textContent;
+                    element.innerHTML = text;
+                });
+            });
+            // Add new highlights
+            if (this.value.length >= 2) {
+                highlightSearchTerms();
+            }
+        });
+    }
+
+    // Quick stats calculation
+    function updateStats() {
+        let totalLocations = 0;
+        let totalWarehouses = warehouseCards.length;
+        
+        warehouseCards.forEach(card => {
+            const locationCount = parseInt(card.getAttribute('data-location-count')) || 0;
+            totalLocations += locationCount;
+        });
+
+        console.log(`Warehouse Stats: ${totalWarehouses} warehouses, ${totalLocations} total locations`);
+    }
+
+    // Initialize stats
+    updateStats();
+
+    // CSV Export functionality
+    const exportBtn = document.getElementById('export-warehouses');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', function() {
+            exportWarehousesToCSV();
+        });
+    }
+
+    function exportWarehousesToCSV() {
+        const visibleCards = Array.from(warehouseCards).filter(card => card.style.display !== 'none');
+        
+        if (visibleCards.length === 0) {
+            alert('No warehouses to export. Please adjust your filters.');
+            return;
+        }
+
+        // CSV Headers
+        const headers = ['Name', 'Address', 'Location Count', 'Size Category', 'Location Codes'];
+        let csvContent = headers.join(',') + '\n';
+
+        // CSV Data
+        visibleCards.forEach(card => {
+            const name = card.getAttribute('data-name') || '';
+            const address = card.getAttribute('data-address') || '';
+            const locationCount = card.getAttribute('data-location-count') || '0';
+            const size = card.getAttribute('data-size') || '';
+            const locations = card.getAttribute('data-locations') || '';
+            
+            const rowData = [
+                `"${name}"`,
+                `"${address}"`,
+                `"${locationCount}"`,
+                `"${size}"`,
+                `"${locations.trim()}"`
+            ];
+            csvContent += rowData.join(',') + '\n';
+        });
+
+        // Download CSV
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        if (link.download !== undefined) {
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `warehouses_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Show success feedback
+            const originalText = exportBtn.innerHTML;
+            exportBtn.innerHTML = '<i class="fas fa-check"></i> Exported!';
+            exportBtn.classList.remove('btn-outline-secondary');
+            exportBtn.classList.add('btn-success');
+            setTimeout(() => {
+                exportBtn.innerHTML = originalText;
+                exportBtn.classList.remove('btn-success');
+                exportBtn.classList.add('btn-outline-secondary');
+            }, 2000);
+        }
+    }
+});
+</script>
+{% endblock %}

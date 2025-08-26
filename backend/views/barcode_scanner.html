@@ -1,0 +1,530 @@
+<!-- Barcode Scanner Modal Component -->
+<div class="modal fade" id="barcodeScannerModal" tabindex="-1" aria-labelledby="barcodeScannerLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="barcodeScannerLabel">
+                    <i class="fas fa-qrcode me-2"></i>Barcode Scanner
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-8">
+                        <!-- Camera Feed -->
+                        <div class="camera-container position-relative">
+                            <video id="barcode-video" class="w-100" style="max-height: 400px; border-radius: 0.5rem;" autoplay muted playsinline></video>
+                            <div id="camera-overlay" class="position-absolute top-50 start-50 translate-middle">
+                                <div class="scanning-line"></div>
+                                <div class="scan-frame"></div>
+                            </div>
+                            <div id="camera-status" class="position-absolute bottom-0 start-0 w-100 p-2 bg-dark bg-opacity-75 text-white text-center">
+                                <small>Position barcode within the frame</small>
+                            </div>
+                        </div>
+                        
+                        <!-- Camera Controls -->
+                        <div class="mt-3 d-flex justify-content-center gap-2">
+                            <button type="button" class="btn btn-success" id="start-camera">
+                                <i class="fas fa-play me-1"></i>Start Camera
+                            </button>
+                            <button type="button" class="btn btn-danger" id="stop-camera" disabled>
+                                <i class="fas fa-stop me-1"></i>Stop Camera
+                            </button>
+                            <button type="button" class="btn btn-secondary" id="switch-camera" disabled>
+                                <i class="fas fa-sync-alt me-1"></i>Switch Camera
+                            </button>
+                            <button type="button" class="btn btn-outline-secondary" id="toggle-torch" disabled>
+                                <i class="fas fa-lightbulb me-1"></i>Torch
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <div class="col-md-4">
+                        <!-- Manual Input -->
+                        <div class="mb-3">
+                            <label for="manual-barcode" class="form-label">Manual Barcode Entry</label>
+                            <div class="input-group">
+                                <input type="text" class="form-control" id="manual-barcode" 
+                                       placeholder="Enter barcode manually">
+                                <button class="btn btn-outline-primary" type="button" id="manual-lookup">
+                                    <i class="fas fa-search"></i>
+                                </button>
+                            </div>
+                            <small class="form-text text-muted">Alternative to camera scanning</small>
+                        </div>
+                        
+                        <!-- Scan Results -->
+                        <div id="scan-results" class="mt-3">
+                            <h6>Recent Scans</h6>
+                            <div id="scan-history" class="list-group list-group-flush" style="max-height: 200px; overflow-y: auto;">
+                                <!-- Scan results will appear here -->
+                            </div>
+                        </div>
+                        
+                        <!-- Scanner Settings -->
+                        <div class="mt-3">
+                            <h6>Scanner Settings</h6>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="continuous-scan" checked>
+                                <label class="form-check-label" for="continuous-scan">
+                                    Continuous Scanning
+                                </label>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" id="beep-on-scan" checked>
+                                <label class="form-check-label" for="beep-on-scan">
+                                    Beep on Scan
+                                </label>
+                            </div>
+                            <div class="mt-2">
+                                <label for="scan-format" class="form-label small">Barcode Format</label>
+                                <select class="form-select form-select-sm" id="scan-format">
+                                    <option value="all">All Formats</option>
+                                    <option value="ean_13">EAN-13</option>
+                                    <option value="ean_8">EAN-8</option>
+                                    <option value="code_128">Code 128</option>
+                                    <option value="code_39">Code 39</option>
+                                    <option value="upc_a">UPC-A</option>
+                                    <option value="upc_e">UPC-E</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+                    <i class="fas fa-times me-1"></i>Close
+                </button>
+                <button type="button" class="btn btn-primary" id="use-selected-barcode" disabled>
+                    <i class="fas fa-check me-1"></i>Use Selected
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Barcode Scanner Styles -->
+<style>
+.camera-container {
+    background: #000;
+    border-radius: 0.5rem;
+    overflow: hidden;
+}
+
+.scan-frame {
+    width: 300px;
+    height: 200px;
+    border: 2px solid #28a745;
+    border-radius: 8px;
+    background: transparent;
+    box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.5);
+    position: relative;
+}
+
+.scan-frame::before,
+.scan-frame::after {
+    content: '';
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border: 3px solid #28a745;
+}
+
+.scan-frame::before {
+    top: -3px;
+    left: -3px;
+    border-right: none;
+    border-bottom: none;
+}
+
+.scan-frame::after {
+    bottom: -3px;
+    right: -3px;
+    border-left: none;
+    border-top: none;
+}
+
+.scanning-line {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #28a745, transparent);
+    animation: scan 2s linear infinite;
+    transform: translateY(-50%);
+}
+
+@keyframes scan {
+    0% { transform: translateY(-100px); }
+    50% { transform: translateY(0); }
+    100% { transform: translateY(100px); }
+}
+
+.scan-result-item {
+    transition: all 0.3s ease;
+}
+
+.scan-result-item:hover {
+    background-color: #f8f9fa;
+}
+
+.scan-result-item.selected {
+    background-color: #e3f2fd;
+    border-color: #2196f3;
+}
+
+.beep-animation {
+    animation: beep 0.3s ease;
+}
+
+@keyframes beep {
+    0% { background-color: transparent; }
+    50% { background-color: rgba(40, 167, 69, 0.3); }
+    100% { background-color: transparent; }
+}
+</style>
+
+<!-- Barcode Scanner JavaScript -->
+<script src="https://cdn.jsdelivr.net/npm/quagga@0.12.1/dist/quagga.min.js"></script>
+<script>
+class BarcodeScanner {
+    constructor() {
+        this.isScanning = false;
+        this.selectedBarcode = null;
+        this.scanHistory = [];
+        this.currentCamera = 0;
+        this.cameras = [];
+        this.onBarcodeScanned = null; // Callback function
+        
+        this.initializeElements();
+        this.bindEvents();
+        this.detectCameras();
+    }
+    
+    initializeElements() {
+        this.modal = document.getElementById('barcodeScannerModal');
+        this.video = document.getElementById('barcode-video');
+        this.startBtn = document.getElementById('start-camera');
+        this.stopBtn = document.getElementById('stop-camera');
+        this.switchBtn = document.getElementById('switch-camera');
+        this.torchBtn = document.getElementById('toggle-torch');
+        this.manualInput = document.getElementById('manual-barcode');
+        this.manualBtn = document.getElementById('manual-lookup');
+        this.historyDiv = document.getElementById('scan-history');
+        this.useBtn = document.getElementById('use-selected-barcode');
+        this.statusDiv = document.getElementById('camera-status');
+        this.continuousCheck = document.getElementById('continuous-scan');
+        this.beepCheck = document.getElementById('beep-on-scan');
+        this.formatSelect = document.getElementById('scan-format');
+    }
+    
+    bindEvents() {
+        this.startBtn.addEventListener('click', () => this.startScanning());
+        this.stopBtn.addEventListener('click', () => this.stopScanning());
+        this.switchBtn.addEventListener('click', () => this.switchCamera());
+        this.torchBtn.addEventListener('click', () => this.toggleTorch());
+        this.manualBtn.addEventListener('click', () => this.manualLookup());
+        this.useBtn.addEventListener('click', () => this.useSelectedBarcode());
+        
+        this.manualInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.manualLookup();
+            }
+        });
+        
+        // Modal events
+        this.modal.addEventListener('hidden.bs.modal', () => {
+            this.stopScanning();
+        });
+    }
+    
+    async detectCameras() {
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            this.cameras = devices.filter(device => device.kind === 'videoinput');
+            
+            if (this.cameras.length > 1) {
+                this.switchBtn.disabled = false;
+            }
+            
+            this.updateStatus(`Found ${this.cameras.length} camera(s)`);
+        } catch (error) {
+            console.error('Error detecting cameras:', error);
+            this.updateStatus('Camera detection failed');
+        }
+    }
+    
+    async startScanning() {
+        try {
+            this.updateStatus('Starting camera...');
+            
+            const constraints = {
+                video: {
+                    deviceId: this.cameras[this.currentCamera]?.deviceId,
+                    facingMode: this.cameras.length === 0 ? 'environment' : undefined,
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
+                }
+            };
+            
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            this.video.srcObject = stream;
+            
+            // Initialize Quagga for barcode detection
+            Quagga.init({
+                inputStream: {
+                    name: "Live",
+                    type: "LiveStream",
+                    target: this.video,
+                    constraints: constraints.video
+                },
+                decoder: {
+                    readers: this.getSelectedReaders()
+                },
+                locator: {
+                    patchSize: "medium",
+                    halfSample: true
+                }
+            }, (err) => {
+                if (err) {
+                    console.error('QuaggaJS init error:', err);
+                    this.updateStatus('Scanner initialization failed');
+                    return;
+                }
+                
+                Quagga.start();
+                this.isScanning = true;
+                this.updateButtons();
+                this.updateStatus('Scanner ready - position barcode in frame');
+            });
+            
+            // Handle barcode detection
+            Quagga.onDetected((result) => {
+                const barcode = result.codeResult.code;
+                this.handleBarcodeDetected(barcode);
+            });
+            
+        } catch (error) {
+            console.error('Error starting camera:', error);
+            this.updateStatus('Camera access denied or not available');
+        }
+    }
+    
+    stopScanning() {
+        if (this.isScanning) {
+            Quagga.stop();
+            
+            if (this.video.srcObject) {
+                const tracks = this.video.srcObject.getTracks();
+                tracks.forEach(track => track.stop());
+                this.video.srcObject = null;
+            }
+            
+            this.isScanning = false;
+            this.updateButtons();
+            this.updateStatus('Scanner stopped');
+        }
+    }
+    
+    switchCamera() {
+        if (this.cameras.length > 1) {
+            this.currentCamera = (this.currentCamera + 1) % this.cameras.length;
+            if (this.isScanning) {
+                this.stopScanning();
+                setTimeout(() => this.startScanning(), 100);
+            }
+        }
+    }
+    
+    toggleTorch() {
+        if (this.video.srcObject) {
+            const track = this.video.srcObject.getVideoTracks()[0];
+            const capabilities = track.getCapabilities();
+            
+            if (capabilities.torch) {
+                const settings = track.getSettings();
+                track.applyConstraints({
+                    advanced: [{ torch: !settings.torch }]
+                }).catch(err => {
+                    console.error('Torch toggle failed:', err);
+                });
+            } else {
+                this.updateStatus('Torch not available on this camera');
+            }
+        }
+    }
+    
+    manualLookup() {
+        const barcode = this.manualInput.value.trim();
+        if (barcode) {
+            this.handleBarcodeDetected(barcode);
+            this.manualInput.value = '';
+        }
+    }
+    
+    handleBarcodeDetected(barcode) {
+        // Avoid duplicate scans
+        const lastScan = this.scanHistory[0];
+        if (lastScan && lastScan.code === barcode && Date.now() - lastScan.timestamp < 2000) {
+            return;
+        }
+        
+        // Add to history
+        const scanData = {
+            code: barcode,
+            timestamp: Date.now(),
+            id: Date.now().toString()
+        };
+        
+        this.scanHistory.unshift(scanData);
+        this.scanHistory = this.scanHistory.slice(0, 10); // Keep last 10 scans
+        
+        // Visual/audio feedback
+        if (this.beepCheck.checked) {
+            this.playBeep();
+        }
+        
+        this.video.classList.add('beep-animation');
+        setTimeout(() => this.video.classList.remove('beep-animation'), 300);
+        
+        // Update UI
+        this.updateScanHistory();
+        this.selectedBarcode = barcode;
+        this.useBtn.disabled = false;
+        
+        // Lookup product information
+        this.lookupProduct(barcode);
+        
+        // Stop continuous scanning if disabled
+        if (!this.continuousCheck.checked) {
+            this.stopScanning();
+        }
+        
+        this.updateStatus(`Scanned: ${barcode}`);
+    }
+    
+    async lookupProduct(barcode) {
+        try {
+            const response = await fetch(`/api/products?barcode=eq.${barcode}`);
+            const products = await response.json();
+            
+            // Update scan history with product info
+            const scanItem = this.scanHistory.find(s => s.code === barcode);
+            if (scanItem) {
+                if (products && products.length > 0) {
+                    scanItem.product = products[0];
+                    scanItem.found = true;
+                } else {
+                    scanItem.found = false;
+                }
+                this.updateScanHistory();
+            }
+        } catch (error) {
+            console.error('Product lookup error:', error);
+        }
+    }
+    
+    updateScanHistory() {
+        this.historyDiv.innerHTML = '';
+        
+        this.scanHistory.forEach(scan => {
+            const item = document.createElement('div');
+            item.className = 'list-group-item scan-result-item d-flex justify-content-between align-items-start';
+            item.style.cursor = 'pointer';
+            
+            const content = document.createElement('div');
+            content.innerHTML = `
+                <div class="fw-bold">${scan.code}</div>
+                <small class="text-muted">${new Date(scan.timestamp).toLocaleTimeString()}</small>
+                ${scan.product ? `<div class="text-success small"><i class="fas fa-check me-1"></i>${scan.product.name}</div>` : 
+                  scan.found === false ? `<div class="text-warning small"><i class="fas fa-exclamation-triangle me-1"></i>Product not found</div>` : 
+                  `<div class="text-info small"><i class="fas fa-spinner fa-spin me-1"></i>Looking up...</div>`}
+            `;
+            
+            const selectBtn = document.createElement('button');
+            selectBtn.className = 'btn btn-sm btn-outline-primary';
+            selectBtn.innerHTML = '<i class="fas fa-check"></i>';
+            selectBtn.onclick = () => {
+                this.selectedBarcode = scan.code;
+                this.useBtn.disabled = false;
+                
+                // Update selection visual
+                document.querySelectorAll('.scan-result-item').forEach(i => i.classList.remove('selected'));
+                item.classList.add('selected');
+            };
+            
+            item.appendChild(content);
+            item.appendChild(selectBtn);
+            this.historyDiv.appendChild(item);
+        });
+    }
+    
+    getSelectedReaders() {
+        const format = this.formatSelect.value;
+        if (format === 'all') {
+            return ["code_128_reader", "ean_reader", "ean_8_reader", "code_39_reader"];
+        }
+        return [`${format}_reader`];
+    }
+    
+    updateButtons() {
+        this.startBtn.disabled = this.isScanning;
+        this.stopBtn.disabled = !this.isScanning;
+        this.torchBtn.disabled = !this.isScanning;
+    }
+    
+    updateStatus(message) {
+        this.statusDiv.innerHTML = `<small>${message}</small>`;
+    }
+    
+    playBeep() {
+        // Create audio beep
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        oscillator.frequency.value = 800;
+        oscillator.type = 'square';
+        
+        gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.1);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.1);
+    }
+    
+    useSelectedBarcode() {
+        if (this.selectedBarcode && this.onBarcodeScanned) {
+            const scanData = this.scanHistory.find(s => s.code === this.selectedBarcode);
+            this.onBarcodeScanned(this.selectedBarcode, scanData);
+            
+            // Close modal
+            const modal = bootstrap.Modal.getInstance(this.modal);
+            modal.hide();
+        }
+    }
+    
+    // Public methods
+    show(callback) {
+        this.onBarcodeScanned = callback;
+        const modal = new bootstrap.Modal(this.modal);
+        modal.show();
+    }
+    
+    reset() {
+        this.selectedBarcode = null;
+        this.scanHistory = [];
+        this.useBtn.disabled = true;
+        this.updateScanHistory();
+    }
+}
+
+// Initialize global barcode scanner
+window.barcodeScanner = new BarcodeScanner();
+</script>

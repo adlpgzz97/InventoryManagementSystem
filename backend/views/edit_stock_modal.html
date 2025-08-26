@@ -1,0 +1,78 @@
+{% if error_message %}
+<div class="alert alert-danger">{{ error_message }}</div>
+{% endif %}
+
+<form method="post" id="editStockForm" action="{{ url_for('edit_stock', stock_id=stock.id) }}?modal=1">
+    <div class="row">
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="product_id" class="form-label">Product <span class="text-danger">*</span></label>
+                <select class="form-select" id="product_id" name="product_id" required>
+                    <option value="">Select Product</option>
+                    {% for product in products %}
+                    <option value="{{ product.id }}" {% if product.id == stock.product_id %}selected{% endif %}>
+                        {{ product.sku }} - {{ product.name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="location_id" class="form-label">Location <span class="text-danger">*</span></label>
+                <select class="form-select" id="location_id" name="location_id" required>
+                    <option value="">Select Location</option>
+                    {% for location in locations %}
+                    <option value="{{ location.id }}" {% if location.id == stock.location_id %}selected{% endif %}>
+                        {{ location.warehouse_name }} - {{ location.aisle }}{{ location.bin }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="qty_available" class="form-label">Available Quantity <span class="text-danger">*</span></label>
+                <input type="number" min="0" class="form-control" id="qty_available" name="qty_available" 
+                       value="{{ stock.qty_available }}" required>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="qty_reserved" class="form-label">Reserved Quantity <span class="text-danger">*</span></label>
+                <input type="number" min="0" class="form-control" id="qty_reserved" name="qty_reserved" 
+                       value="{{ stock.qty_reserved }}" required>
+            </div>
+        </div>
+    </div>
+    
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle me-2"></i>
+        <strong>Current Status:</strong>
+        {% if stock.qty_available == 0 %}
+            <span class="badge bg-danger">Out of Stock</span>
+        {% elif stock.qty_available < 10 %}
+            <span class="badge bg-warning">Low Stock</span>
+        {% else %}
+            <span class="badge bg-success">In Stock</span>
+        {% endif %}
+        | <strong>Total:</strong> {{ stock.qty_available + stock.qty_reserved }} units
+    </div>
+    
+    <div class="d-flex justify-content-between">
+        <button type="button" class="btn btn-danger delete-btn" 
+                data-type="stock" 
+                data-id="{{ stock.id }}"
+                data-name="stock item">
+            <i class="fas fa-trash me-2"></i>Delete Stock Item
+        </button>
+        <button type="submit" class="btn btn-primary">
+            <i class="fas fa-save me-2"></i>Save Changes
+        </button>
+    </div>
+</form>
+
+<p class="mt-2 text-muted"><span class="text-danger">*</span> Required field</p>

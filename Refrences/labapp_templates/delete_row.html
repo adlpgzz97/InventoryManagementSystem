@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+
+{% block title %}Delete Row{% endblock %}
+
+{% block content %}
+<div class="card border-danger">
+    <div class="card-body">
+        <h2 class="card-title mb-4 text-danger">Delete Row</h2>
+        <p>Are you sure you want to delete this row from <strong>{{ table_name|capitalize }}</strong>?</p>
+        <form method="post" class="d-inline">
+            <button type="submit" class="btn btn-danger">Confirm Delete</button>
+        </form>
+        <a href="/table/{{ table_name }}" class="btn btn-secondary ms-2">Cancel</a>
+    </div>
+</div>
+{% endblock %} 

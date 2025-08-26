@@ -1,0 +1,213 @@
+{% if error_message %}
+<div class="alert alert-danger">{{ error_message }}</div>
+{% endif %}
+
+<form method="post" id="addStockForm" action="{{ url_for('add_stock') }}?modal=1">
+    <div class="row">
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="product_id" class="form-label">Product <span class="text-danger">*</span></label>
+                <div class="input-group">
+                    <select class="form-select" id="product_id" name="product_id" required>
+                        <option value="">Select Product</option>
+                        {% for product in products %}
+                        <option value="{{ product.id }}" data-barcode="{{ product.barcode or '' }}">
+                            {{ product.sku }} - {{ product.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                    <button class="btn btn-outline-secondary" type="button" id="scan-product-barcode" title="Scan Barcode">
+                        <i class="fas fa-qrcode"></i>
+                    </button>
+                </div>
+                {% if not products %}
+                <small class="form-text text-warning">
+                    <i class="fas fa-exclamation-triangle me-1"></i>
+                    No products available. Create a product first.
+                </small>
+                {% endif %}
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="location_id" class="form-label">Location <span class="text-danger">*</span></label>
+                <select class="form-select" id="location_id" name="location_id" required>
+                    <option value="">Select Location</option>
+                    {% for location in locations %}
+                    <option value="{{ location.id }}">
+                        {{ location.warehouse_name }} - {{ location.aisle }}{{ location.bin }}
+                    </option>
+                    {% endfor %}
+                </select>
+                {% if not locations %}
+                <small class="form-text text-warning">
+                    <i class="fas fa-exclamation-triangle me-1"></i>
+                    No locations available. Create a warehouse with locations first.
+                </small>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="qty_available" class="form-label">Available Quantity <span class="text-danger">*</span></label>
+                <input type="number" min="0" class="form-control" id="qty_available" name="qty_available" 
+                       value="0" required>
+                <small class="form-text text-muted">Items ready for use/sale</small>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="qty_reserved" class="form-label">Reserved Quantity</label>
+                <input type="number" min="0" class="form-control" id="qty_reserved" name="qty_reserved" 
+                       value="0">
+                <small class="form-text text-muted">Items allocated but not yet shipped</small>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Batch Tracking Fields (will be shown/hidden via JavaScript) -->
+    <div id="batch-tracking-fields" style="display: none;">
+        <div class="row">
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label for="batch_id" class="form-label">Batch ID <span class="text-danger">*</span></label>
+                    <input type="text" class="form-control" id="batch_id" name="batch_id" 
+                           placeholder="e.g., BATCH-2024-001">
+                    <small class="form-text text-muted">Unique identifier for this batch</small>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label for="expiry_date" class="form-label">Expiry Date</label>
+                    <input type="date" class="form-control" id="expiry_date" name="expiry_date">
+                    <small class="form-text text-muted">Leave blank if no expiry</small>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="alert alert-info">
+        <i class="fas fa-info-circle me-2"></i>
+        <strong>Note:</strong> This will create a new stock entry for the selected product at the chosen location.
+        If stock already exists for this product-location combination, consider editing the existing entry instead.
+    </div>
+    
+    <div class="d-flex justify-content-end">
+        <button type="button" class="btn btn-secondary me-2" data-bs-dismiss="modal">
+            <i class="fas fa-times me-2"></i>Cancel
+        </button>
+        <button type="submit" class="btn btn-success" {% if not products or not locations %}disabled{% endif %}>
+            <i class="fas fa-plus me-2"></i>Add Stock
+        </button>
+    </div>
+</form>
+
+<p class="mt-2 text-muted"><span class="text-danger">*</span> Required field</p>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const productSelect = document.getElementById('product_id');
+    const batchFields = document.getElementById('batch-tracking-fields');
+    const batchIdInput = document.getElementById('batch_id');
+    
+    // Product data for batch tracking check
+    const products = [
+        {% for product in products %}
+        {id: '{{ product.id }}', batch_tracked: {{ product.batch_tracked|lower if product.batch_tracked is defined else 'false' }}},
+        {% endfor %}
+    ];
+    
+    function toggleBatchFields() {
+        const selectedProductId = productSelect.value;
+        const selectedProduct = products.find(p => p.id === selectedProductId);
+        
+        if (selectedProduct && selectedProduct.batch_tracked) {
+            batchFields.style.display = 'block';
+            batchIdInput.required = true;
+            batchFields.querySelector('.alert').style.display = 'block';
+        } else {
+            batchFields.style.display = 'none';
+            batchIdInput.required = false;
+            // Clear batch fields
+            document.getElementById('batch_id').value = '';
+            document.getElementById('expiry_date').value = '';
+        }
+    }
+    
+    // Add batch tracking alert if not already present
+    if (!batchFields.querySelector('.alert')) {
+        const alert = document.createElement('div');
+        alert.className = 'alert alert-warning mt-2';
+        alert.innerHTML = '<i class="fas fa-info-circle me-2"></i><strong>Batch Tracking:</strong> This product requires batch information for inventory tracking.';
+        batchFields.appendChild(alert);
+    }
+    
+    productSelect.addEventListener('change', toggleBatchFields);
+    
+    // Initialize on page load
+    toggleBatchFields();
+    
+    // Barcode scanning integration
+    const scanProductBtn = document.getElementById('scan-product-barcode');
+    if (scanProductBtn && window.barcodeScanner) {
+        scanProductBtn.addEventListener('click', function() {
+            window.barcodeScanner.show((barcode, scanData) => {
+                // Look for product with matching barcode
+                const productOptions = document.querySelectorAll('#product_id option');
+                let productFound = false;
+                
+                for (let option of productOptions) {
+                    const optionBarcode = option.getAttribute('data-barcode');
+                    if (optionBarcode && optionBarcode === barcode) {
+                        document.getElementById('product_id').value = option.value;
+                        productFound = true;
+                        toggleBatchFields(); // Update batch fields for selected product
+                        
+                        // Show success feedback
+                        const alertDiv = document.createElement('div');
+                        alertDiv.className = 'alert alert-success alert-dismissible fade show mt-2';
+                        alertDiv.innerHTML = `
+                            <i class="fas fa-check-circle me-2"></i>
+                            Product found: <strong>${option.textContent}</strong>
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        `;
+                        scanProductBtn.parentNode.insertAdjacentElement('afterend', alertDiv);
+                        
+                        // Auto-dismiss after 3 seconds
+                        setTimeout(() => {
+                            if (alertDiv.parentNode) {
+                                alertDiv.remove();
+                            }
+                        }, 3000);
+                        
+                        break;
+                    }
+                }
+                
+                if (!productFound) {
+                    // Show product not found message
+                    const alertDiv = document.createElement('div');
+                    alertDiv.className = 'alert alert-warning alert-dismissible fade show mt-2';
+                    alertDiv.innerHTML = `
+                        <i class="fas fa-exclamation-triangle me-2"></i>
+                        No product found with barcode: <strong>${barcode}</strong>
+                        <br><small>You may need to add this product first or check the barcode.</small>
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    `;
+                    scanProductBtn.parentNode.insertAdjacentElement('afterend', alertDiv);
+                    
+                    // Auto-dismiss after 5 seconds
+                    setTimeout(() => {
+                        if (alertDiv.parentNode) {
+                            alertDiv.remove();
+                        }
+                    }, 5000);
+                }
+            });
+        });
+    }
+});
+</script>

@@ -1,0 +1,175 @@
+{% if error_message %}
+<div class="alert alert-danger">{{ error_message }}</div>
+{% endif %}
+
+<form method="post" id="editProductForm" action="{{ url_for('edit_product', product_id=product.id) }}?modal=1">
+    <div class="row">
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="sku" class="form-label">SKU <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="sku" name="sku" 
+                       value="{{ product.sku }}" required>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="name" class="form-label">Product Name <span class="text-danger">*</span></label>
+                <input type="text" class="form-control" id="name" name="name" 
+                       value="{{ product.name }}" required>
+            </div>
+        </div>
+    </div>
+    
+    <div class="mb-3">
+        <label for="description" class="form-label">Description</label>
+        <textarea class="form-control" id="description" name="description" rows="3">{{ product.description or '' }}</textarea>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="dimensions" class="form-label">Dimensions</label>
+                <input type="text" class="form-control" id="dimensions" name="dimensions" 
+                       value="{{ product.dimensions or '' }}" placeholder="e.g., 10x5x2 cm">
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="weight" class="form-label">Weight (kg)</label>
+                <input type="number" step="0.01" class="form-control" id="weight" name="weight" 
+                       value="{{ product.weight or '' }}" placeholder="0.00">
+            </div>
+        </div>
+    </div>
+    
+    <div class="row">
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="barcode" class="form-label">Barcode</label>
+                <div class="input-group">
+                    <input type="text" class="form-control" id="barcode" name="barcode" 
+                           value="{{ product.barcode or '' }}">
+                    <button class="btn btn-outline-secondary" type="button" id="scan-barcode-btn" title="Scan Barcode">
+                        <i class="fas fa-qrcode"></i>
+                    </button>
+                    <button class="btn btn-outline-info" type="button" id="generate-barcode-btn" title="Generate Random Barcode">
+                        <i class="fas fa-magic"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label for="picture_url" class="form-label">Picture URL</label>
+                <input type="url" class="form-control" id="picture_url" name="picture_url" 
+                       value="{{ product.picture_url or '' }}">
+            </div>
+        </div>
+    </div>
+    
+    <div class="mb-3">
+        <div class="form-check form-switch">
+            <input class="form-check-input" type="checkbox" id="batch_tracked" name="batch_tracked" 
+                   {% if product.batch_tracked %}checked{% endif %}>
+            <label class="form-check-label" for="batch_tracked">
+                <strong>Enable Batch Tracking</strong>
+            </label>
+            <div class="form-text">
+                When enabled, each stock receipt will create separate inventory records with batch ID and expiry date. 
+                When disabled, stock quantities are combined in the same location.
+                <strong class="text-warning">Warning: Changing this setting affects future stock operations only.</strong>
+            </div>
+        </div>
+    </div>
+    
+    <div class="d-flex justify-content-between">
+        <button type="button" class="btn btn-danger delete-btn" 
+                data-type="product" 
+                data-id="{{ product.id }}"
+                data-name="{{ product.name }}">
+            <i class="fas fa-trash me-2"></i>Delete Product
+        </button>
+        <button type="submit" class="btn btn-primary">
+            <i class="fas fa-save me-2"></i>Save Changes
+        </button>
+    </div>
+</form>
+
+<p class="mt-2 text-muted"><span class="text-danger">*</span> Required field</p>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Barcode scanning functionality (same as add product)
+    const scanBarcodeBtn = document.getElementById('scan-barcode-btn');
+    const generateBarcodeBtn = document.getElementById('generate-barcode-btn');
+    const barcodeInput = document.getElementById('barcode');
+    
+    if (scanBarcodeBtn && window.barcodeScanner) {
+        scanBarcodeBtn.addEventListener('click', function() {
+            window.barcodeScanner.show((barcode, scanData) => {
+                barcodeInput.value = barcode;
+                
+                // Show success feedback
+                const alertDiv = document.createElement('div');
+                alertDiv.className = 'alert alert-success alert-dismissible fade show mt-2';
+                alertDiv.innerHTML = `
+                    <i class="fas fa-check-circle me-2"></i>
+                    Barcode updated: <strong>${barcode}</strong>
+                    <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                `;
+                barcodeInput.parentNode.insertAdjacentElement('afterend', alertDiv);
+                
+                // Auto-dismiss after 3 seconds
+                setTimeout(() => {
+                    if (alertDiv.parentNode) {
+                        alertDiv.remove();
+                    }
+                }, 3000);
+            });
+        });
+    }
+    
+    if (generateBarcodeBtn) {
+        generateBarcodeBtn.addEventListener('click', function() {
+            // Generate a random EAN-13 barcode
+            const randomBarcode = generateEAN13();
+            barcodeInput.value = randomBarcode;
+            
+            // Show feedback
+            const alertDiv = document.createElement('div');
+            alertDiv.className = 'alert alert-info alert-dismissible fade show mt-2';
+            alertDiv.innerHTML = `
+                <i class="fas fa-magic me-2"></i>
+                Generated new barcode: <strong>${randomBarcode}</strong>
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            barcodeInput.parentNode.insertAdjacentElement('afterend', alertDiv);
+            
+            // Auto-dismiss after 3 seconds
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, 3000);
+        });
+    }
+    
+    function generateEAN13() {
+        // Generate 12 random digits
+        let barcode = '';
+        for (let i = 0; i < 12; i++) {
+            barcode += Math.floor(Math.random() * 10);
+        }
+        
+        // Calculate check digit
+        let sum = 0;
+        for (let i = 0; i < 12; i++) {
+            const digit = parseInt(barcode[i]);
+            sum += (i % 2 === 0) ? digit : digit * 3;
+        }
+        const checkDigit = (10 - (sum % 10)) % 10;
+        
+        return barcode + checkDigit;
+    }
+});
+</script>

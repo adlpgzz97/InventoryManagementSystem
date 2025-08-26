@@ -1,0 +1,965 @@
+{% extends "base.html" %}
+
+{% block title %}Stock - Inventory Management{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Stock Overview</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            {% if current_user.role in ['admin', 'manager'] %}
+            <button type="button" class="btn btn-sm btn-success add-btn" data-type="stock">
+                <i class="fas fa-plus"></i> Add Stock
+            </button>
+            {% endif %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="export-stock">
+                <i class="fas fa-download"></i> Export CSV
+            </button>
+        </div>
+    </div>
+</div>
+
+{% if stock_items %}
+<div class="card">
+    <div class="card-header">
+        <div class="row align-items-center">
+            <div class="col-md-3">
+                <h5 class="mb-0"><i class="fas fa-boxes me-2"></i> Stock Management</h5>
+            </div>
+            <div class="col-md-9">
+                <div class="row g-2">
+                    <div class="col-md-4">
+                        <input type="text" id="search-stock" class="form-control form-control-sm" 
+                               placeholder="Search stock (product, SKU, location)...">
+                    </div>
+                    <div class="col-md-2">
+                        <select id="filter-warehouse" class="form-select form-select-sm">
+                            <option value="">All Warehouses</option>
+                            {% set warehouses = [] %}
+                            {% for item in stock_items %}
+                                {% if item.locations and item.locations.warehouses %}
+                                    {% set warehouse_name = item.locations.warehouses.name %}
+                                    {% if warehouse_name not in warehouses %}
+                                        {% set _ = warehouses.append(warehouse_name) %}
+                                        <option value="{{ warehouse_name|lower }}">{{ warehouse_name }}</option>
+                                    {% endif %}
+                                {% endif %}
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <select id="filter-status" class="form-select form-select-sm">
+                            <option value="">All Status</option>
+                            <option value="out">Out of Stock</option>
+                            <option value="low">Low Stock</option>
+                            <option value="in">In Stock</option>
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <div class="form-check form-switch mt-1">
+                            <input class="form-check-input" type="checkbox" id="showLowStock">
+                            <label class="form-check-label" for="showLowStock">
+                                <small>Low Stock Only</small>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="col-md-2">
+                        <button id="clear-stock-filters" class="btn btn-outline-secondary btn-sm w-100">
+                            <i class="fas fa-times me-1"></i>Clear
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="card-body">
+        <!-- Bulk Actions Toolbar -->
+        <div id="bulk-stock-toolbar" class="alert alert-warning" style="display: none;">
+            <div class="row align-items-center">
+                <div class="col">
+                    <strong><span id="selected-stock-count">0</span> stock item(s) selected</strong>
+                </div>
+                <div class="col-auto">
+                    <div class="btn-group btn-group-sm">
+                        <button type="button" class="btn btn-outline-primary" id="bulk-export-stock">
+                            <i class="fas fa-download me-1"></i>Export Selected
+                        </button>
+                        {% if current_user.role in ['admin', 'manager'] %}
+                        <button type="button" class="btn btn-outline-danger" id="bulk-delete-stock">
+                            <i class="fas fa-trash me-1"></i>Delete Selected
+                        </button>
+                        {% endif %}
+                        <button type="button" class="btn btn-outline-secondary" id="clear-stock-selection">
+                            <i class="fas fa-times me-1"></i>Clear Selection
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="table-responsive">
+            <table class="table table-hover" id="stockTable">
+                <thead>
+                    <tr>
+                        <th width="40">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="select-all-stock">
+                                <label class="form-check-label" for="select-all-stock"></label>
+                            </div>
+                        </th>
+                        <th class="sortable" data-column="product" data-type="text">
+                            Product <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="sku" data-type="text">
+                            SKU <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="warehouse" data-type="text">
+                            Warehouse <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="location" data-type="text">
+                            Location <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="available" data-type="number">
+                            Available <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="reserved" data-type="number">
+                            Reserved <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="total" data-type="number">
+                            Total <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="batch_info" data-type="text">
+                            Batch Info <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th class="sortable" data-column="status" data-type="text">
+                            Status <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="stock-tbody">
+                    {% for item in stock_items %}
+                    <tr class="stock-row" 
+                        data-available="{{ item.qty_available }}"
+                        data-product-name="{{ (item.products.name if item.products else '')|lower }}"
+                        data-sku="{{ (item.products.sku if item.products else '')|lower }}"
+                        data-warehouse="{{ (item.locations.warehouses.name if item.locations and item.locations.warehouses else '')|lower }}"
+                        data-location="{{ (item.locations.aisle + item.locations.bin if item.locations else '')|lower }}"
+                        data-status="{% if item.qty_available == 0 %}out{% elif item.qty_available < 10 %}low{% else %}in{% endif %}">
+                        <td>
+                            <div class="form-check">
+                                <input class="form-check-input stock-checkbox" type="checkbox" value="{{ item.id }}" id="stock-{{ loop.index }}">
+                                <label class="form-check-label" for="stock-{{ loop.index }}"></label>
+                            </div>
+                        </td>
+                        <td>
+                            <strong>
+                                {% if item.products %}
+                                    {{ item.products.name }}
+                                {% else %}
+                                    Unknown Product
+                                {% endif %}
+                            </strong>
+                        </td>
+                        <td>
+                            {% if item.products %}
+                                <code>{{ item.products.sku }}</code>
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.locations and item.locations.warehouses %}
+                                {{ item.locations.warehouses.name }}
+                            {% else %}
+                                Unknown Warehouse
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.locations %}
+                                <span class="badge bg-light text-dark">{{ item.locations.aisle }}{{ item.locations.bin }}</span>
+                            {% else %}
+                                N/A
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge bg-{% if item.qty_available == 0 %}danger{% elif item.qty_available < 10 %}warning{% else %}success{% endif %}">
+                                {{ item.qty_available }}
+                            </span>
+                        </td>
+                        <td>
+                            {% if item.qty_reserved > 0 %}
+                                <span class="badge bg-info">{{ item.qty_reserved }}</span>
+                            {% else %}
+                                {{ item.qty_reserved }}
+                            {% endif %}
+                        </td>
+                        <td><strong>{{ item.qty_available + item.qty_reserved }}</strong></td>
+                        <td>
+                            {% if item.batch_id %}
+                                <div class="small">
+                                    <span class="badge bg-info mb-1">{{ item.batch_id }}</span>
+                                    {% if item.expiry_date %}
+                                        <br><small class="text-muted">
+                                            <i class="fas fa-calendar-alt me-1"></i>Exp: {{ item.expiry_date }}
+                                        </small>
+                                    {% endif %}
+                                </div>
+                            {% else %}
+                                <span class="text-muted">—</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if item.qty_available == 0 %}
+                                <span class="badge bg-danger">Out of Stock</span>
+                            {% elif item.qty_available < 10 %}
+                                <span class="badge bg-warning">Low Stock</span>
+                            {% else %}
+                                <span class="badge bg-success">In Stock</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary btn-sm edit-btn" 
+                                        data-type="stock" 
+                                        data-id="{{ item.id }}"
+                                        title="Edit Stock">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-outline-danger btn-sm delete-btn" 
+                                        data-type="stock" 
+                                        data-id="{{ item.id }}"
+                                        data-name="stock item"
+                                        title="Delete Stock">
+                                    <i class="fas fa-trash"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer">
+        <!-- Pagination Controls -->
+        <div class="row align-items-center mb-3">
+            <div class="col-md-3">
+                <div class="d-flex align-items-center">
+                    <label for="stock-items-per-page" class="form-label me-2 mb-0 small">Show:</label>
+                    <select id="stock-items-per-page" class="form-select form-select-sm" style="width: auto;">
+                        <option value="10">10</option>
+                        <option value="25" selected>25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="all">All</option>
+                    </select>
+                    <span class="ms-2 small text-muted">per page</span>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <nav aria-label="Stock pagination">
+                    <ul class="pagination pagination-sm justify-content-center mb-0" id="stock-pagination-controls">
+                        <!-- Pagination buttons will be generated by JavaScript -->
+                    </ul>
+                </nav>
+            </div>
+            <div class="col-md-3">
+                <div class="text-end">
+                    <small class="text-muted">
+                        <span id="stock-pagination-info">Showing 1-25 of {{ stock_items|length }}</span>
+                    </small>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Table Controls -->
+        <div class="row align-items-center">
+            <div class="col-md-4">
+                <div class="btn-group btn-group-sm">
+                    <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-columns me-1"></i>Columns
+                    </button>
+                    <ul class="dropdown-menu" id="stock-column-visibility-menu">
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="product"> Product</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="sku"> SKU</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="warehouse"> Warehouse</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="location"> Location</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="available"> Available</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="reserved"> Reserved</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="total"> Total</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="batch_info"> Batch Info</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="status"> Status</label></li>
+                    </ul>
+                </div>
+                <button type="button" class="btn btn-outline-secondary btn-sm ms-1" id="reset-stock-table-settings">
+                    <i class="fas fa-undo me-1"></i>Reset
+                </button>
+            </div>
+            <div class="col-md-4 text-center">
+                <small class="text-muted">
+                    <span class="badge bg-success">Full CRUD Available</span>
+                    <span class="badge bg-info">Sortable Columns</span>
+                </small>
+            </div>
+            <div class="col-md-4 text-end">
+                <small class="text-muted">
+                    <span class="badge bg-danger">●</span> Out of Stock
+                    <span class="badge bg-warning">●</span> Low Stock (&lt;10)
+                    <span class="badge bg-success">●</span> In Stock
+                </small>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <div class="card-body text-center py-5">
+        <i class="bi bi-boxes display-1 text-muted"></i>
+        <h4 class="text-muted mt-3">No stock items found</h4>
+        <p class="text-muted">Add products and stock levels to track your inventory.</p>
+        {% if current_user.role in ['admin', 'manager'] %}
+        <button class="btn btn-success add-btn" data-type="stock">
+            <i class="fas fa-plus"></i> Add Stock Item
+        </button>
+        {% endif %}
+        <br><br>
+        <small class="text-muted">
+            <span class="badge bg-info">Phase 2: Stock management forms coming soon</span>
+        </small>
+    </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('search-stock');
+    const warehouseFilter = document.getElementById('filter-warehouse');
+    const statusFilter = document.getElementById('filter-status');
+    const lowStockToggle = document.getElementById('showLowStock');
+    const clearFiltersBtn = document.getElementById('clear-stock-filters');
+    const stockRows = document.querySelectorAll('.stock-row');
+    const visibleCounter = document.getElementById('visible-stock');
+    
+    // Pagination variables for stock
+    let stockCurrentPage = 1;
+    let stockItemsPerPage = 25;
+    let stockFilteredRows = Array.from(stockRows);
+    let stockCurrentSort = { column: null, direction: 'asc' };
+    
+    // Bulk Operations for Stock - Declare variables first
+    const selectAllStockCheckbox = document.getElementById('select-all-stock');
+    const stockCheckboxes = document.querySelectorAll('.stock-checkbox');
+    const bulkStockToolbar = document.getElementById('bulk-stock-toolbar');
+    const selectedStockCountSpan = document.getElementById('selected-stock-count');
+    const bulkDeleteStockBtn = document.getElementById('bulk-delete-stock');
+    const bulkExportStockBtn = document.getElementById('bulk-export-stock');
+    const clearStockSelectionBtn = document.getElementById('clear-stock-selection');
+    
+    // Stock pagination functions
+    function updateStockPagination() {
+        const totalItems = stockFilteredRows.length;
+        const totalPages = stockItemsPerPage === 'all' ? 1 : Math.ceil(totalItems / stockItemsPerPage);
+        
+        // Update pagination info
+        const startItem = stockItemsPerPage === 'all' ? 1 : (stockCurrentPage - 1) * stockItemsPerPage + 1;
+        const endItem = stockItemsPerPage === 'all' ? totalItems : Math.min(stockCurrentPage * stockItemsPerPage, totalItems);
+        
+        document.getElementById('stock-pagination-info').textContent = 
+            `Showing ${startItem}-${endItem} of ${totalItems}`;
+        
+        // Generate pagination controls
+        const paginationControls = document.getElementById('stock-pagination-controls');
+        paginationControls.innerHTML = '';
+        
+        if (stockItemsPerPage === 'all' || totalPages <= 1) {
+            return;
+        }
+        
+        // Previous button
+        const prevButton = createStockPaginationButton('‹', stockCurrentPage - 1, stockCurrentPage === 1);
+        paginationControls.appendChild(prevButton);
+        
+        // Page numbers
+        const startPage = Math.max(1, stockCurrentPage - 2);
+        const endPage = Math.min(totalPages, stockCurrentPage + 2);
+        
+        if (startPage > 1) {
+            paginationControls.appendChild(createStockPaginationButton('1', 1));
+            if (startPage > 2) {
+                const ellipsis = document.createElement('li');
+                ellipsis.className = 'page-item disabled';
+                ellipsis.innerHTML = '<span class="page-link">...</span>';
+                paginationControls.appendChild(ellipsis);
+            }
+        }
+        
+        for (let i = startPage; i <= endPage; i++) {
+            paginationControls.appendChild(createStockPaginationButton(i, i, false, i === stockCurrentPage));
+        }
+        
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                const ellipsis = document.createElement('li');
+                ellipsis.className = 'page-item disabled';
+                ellipsis.innerHTML = '<span class="page-link">...</span>';
+                paginationControls.appendChild(ellipsis);
+            }
+            paginationControls.appendChild(createStockPaginationButton(totalPages, totalPages));
+        }
+        
+        // Next button
+        const nextButton = createStockPaginationButton('›', stockCurrentPage + 1, stockCurrentPage === totalPages);
+        paginationControls.appendChild(nextButton);
+    }
+    
+    function createStockPaginationButton(text, page, disabled = false, active = false) {
+        const li = document.createElement('li');
+        li.className = `page-item ${disabled ? 'disabled' : ''} ${active ? 'active' : ''}`;
+        
+        const button = document.createElement(disabled ? 'span' : 'button');
+        button.className = 'page-link';
+        button.textContent = text;
+        
+        if (!disabled) {
+            button.addEventListener('click', () => {
+                stockCurrentPage = page;
+                applyStockPagination();
+            });
+        }
+        
+        li.appendChild(button);
+        return li;
+    }
+    
+    function applyStockPagination() {
+        const tbody = document.getElementById('stock-tbody');
+        if (!tbody) return;
+        
+        // Determine which rows to show
+        let rowsToShow;
+        if (stockItemsPerPage === 'all') {
+            rowsToShow = stockFilteredRows;
+        } else {
+            const startIndex = (stockCurrentPage - 1) * stockItemsPerPage;
+            const endIndex = startIndex + stockItemsPerPage;
+            rowsToShow = stockFilteredRows.slice(startIndex, endIndex);
+        }
+        
+        // Physically reorder the DOM elements to match the sorted array
+        // First, remove all rows from the tbody
+        while (tbody.firstChild) {
+            tbody.removeChild(tbody.firstChild);
+        }
+        
+        // Then add them back in the correct order
+        rowsToShow.forEach(row => {
+            tbody.appendChild(row);
+        });
+        
+        updateStockPagination();
+        updateStockBulkToolbar();
+    }
+
+    function filterStock() {
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        const warehouseTerm = warehouseFilter ? warehouseFilter.value : '';
+        const statusTerm = statusFilter ? statusFilter.value : '';
+        const lowStockOnly = lowStockToggle ? lowStockToggle.checked : false;
+
+        stockFilteredRows = Array.from(stockRows).filter(row => {
+            const productName = row.getAttribute('data-product-name') || '';
+            const sku = row.getAttribute('data-sku') || '';
+            const warehouse = row.getAttribute('data-warehouse') || '';
+            const location = row.getAttribute('data-location') || '';
+            const status = row.getAttribute('data-status') || '';
+            const available = parseInt(row.getAttribute('data-available')) || 0;
+            
+            const matchesSearch = !searchTerm || 
+                productName.includes(searchTerm) ||
+                sku.includes(searchTerm) ||
+                warehouse.includes(searchTerm) ||
+                location.includes(searchTerm);
+            
+            const matchesWarehouse = !warehouseTerm || warehouse.includes(warehouseTerm);
+            const matchesStatus = !statusTerm || status === statusTerm;
+            const matchesLowStock = !lowStockOnly || available < 10;
+            
+            return matchesSearch && matchesWarehouse && matchesStatus && matchesLowStock;
+        });
+
+        // Reset to first page when filtering
+        stockCurrentPage = 1;
+        applyStockPagination();
+    }
+    
+    // Stock sorting functions
+    function sortStockTable(column, dataType) {
+        const direction = stockCurrentSort.column === column && stockCurrentSort.direction === 'asc' ? 'desc' : 'asc';
+        stockCurrentSort = { column, direction };
+        
+        // Update sort icons
+        document.querySelectorAll('#stockTable .sortable i').forEach(icon => {
+            icon.className = 'fas fa-sort text-muted';
+        });
+        
+        const headerCell = document.querySelector(`#stockTable th[data-column="${column}"] i`);
+        if (headerCell) {
+            headerCell.className = `fas fa-sort-${direction === 'asc' ? 'up' : 'down'} text-primary`;
+        }
+        
+        // Sort filtered rows
+        stockFilteredRows.sort((a, b) => {
+            const aValue = getStockCellValue(a, column, dataType);
+            const bValue = getStockCellValue(b, column, dataType);
+            
+            if (aValue === bValue) return 0;
+            
+            let result;
+            if (dataType === 'number') {
+                result = parseFloat(aValue || 0) - parseFloat(bValue || 0);
+            } else {
+                result = aValue.localeCompare(bValue);
+            }
+            
+            return direction === 'asc' ? result : -result;
+        });
+        
+        // Reset to first page and apply pagination
+        stockCurrentPage = 1;
+        applyStockPagination();
+    }
+    
+    function getStockCellValue(row, column, dataType) {
+        const columnIndex = {
+            'product': 1, 'sku': 2, 'warehouse': 3, 'location': 4,
+            'available': 5, 'reserved': 6, 'total': 7, 'batch_info': 8, 'status': 9
+        };
+        
+        const cell = row.cells[columnIndex[column]];
+        if (!cell) return '';
+        
+        if (dataType === 'number') {
+            const text = cell.textContent.trim();
+            return parseFloat(text.replace(/[^\d.-]/g, '')) || 0;
+        }
+        
+        return cell.textContent.trim();
+    }
+    
+    // Stock column visibility functions
+    function toggleStockColumnVisibility(column, visible) {
+        const columnIndex = {
+            'product': 1, 'sku': 2, 'warehouse': 3, 'location': 4,
+            'available': 5, 'reserved': 6, 'total': 7, 'batch_info': 8, 'status': 9
+        };
+        
+        const index = columnIndex[column];
+        if (index === undefined) return;
+        
+        // Toggle header
+        const header = document.querySelector(`#stockTable thead th:nth-child(${index + 1})`);
+        if (header) {
+            header.style.display = visible ? '' : 'none';
+        }
+        
+        // Toggle all body cells
+        document.querySelectorAll(`#stockTable tbody td:nth-child(${index + 1})`).forEach(cell => {
+            cell.style.display = visible ? '' : 'none';
+        });
+    }
+
+    // Event listeners
+    if (searchInput) {
+        searchInput.addEventListener('input', filterStock);
+    }
+    if (warehouseFilter) {
+        warehouseFilter.addEventListener('change', filterStock);
+    }
+    if (statusFilter) {
+        statusFilter.addEventListener('change', filterStock);
+    }
+    if (lowStockToggle) {
+        lowStockToggle.addEventListener('change', filterStock);
+    }
+    if (clearFiltersBtn) {
+        clearFiltersBtn.addEventListener('click', function() {
+            if (searchInput) searchInput.value = '';
+            if (warehouseFilter) warehouseFilter.value = '';
+            if (statusFilter) statusFilter.value = '';
+            if (lowStockToggle) lowStockToggle.checked = false;
+            filterStock();
+        });
+    }
+    
+    // Stock items per page change
+    const stockItemsPerPageSelect = document.getElementById('stock-items-per-page');
+    if (stockItemsPerPageSelect) {
+        stockItemsPerPageSelect.addEventListener('change', function() {
+            stockItemsPerPage = this.value === 'all' ? 'all' : parseInt(this.value);
+            stockCurrentPage = 1;
+            applyStockPagination();
+        });
+    }
+    
+    // Stock sortable column headers
+    document.querySelectorAll('#stockTable .sortable').forEach(header => {
+        header.style.cursor = 'pointer';
+        header.addEventListener('click', function() {
+            const column = this.getAttribute('data-column');
+            const dataType = this.getAttribute('data-type');
+            sortStockTable(column, dataType);
+        });
+    });
+    
+    // Stock column visibility controls
+    document.querySelectorAll('#stock-column-visibility-menu input[type="checkbox"]').forEach(checkbox => {
+        checkbox.addEventListener('change', function() {
+            const column = this.getAttribute('data-column');
+            toggleStockColumnVisibility(column, this.checked);
+        });
+    });
+    
+    // Reset stock table settings
+    document.getElementById('reset-stock-table-settings')?.addEventListener('click', function() {
+        // Reset column visibility
+        document.querySelectorAll('#stock-column-visibility-menu input[type="checkbox"]').forEach(checkbox => {
+            checkbox.checked = true;
+            toggleStockColumnVisibility(checkbox.getAttribute('data-column'), true);
+        });
+        
+        // Reset sorting
+        stockCurrentSort = { column: null, direction: 'asc' };
+        document.querySelectorAll('#stockTable .sortable i').forEach(icon => {
+            icon.className = 'fas fa-sort text-muted';
+        });
+        
+        // Reset pagination
+        stockItemsPerPageSelect.value = '25';
+        stockItemsPerPage = 25;
+        stockCurrentPage = 1;
+        
+        filterStock();
+    });
+    
+    // Initialize stock pagination
+    applyStockPagination();
+
+    // Highlight search terms
+    function highlightSearchTerms() {
+        if (!searchInput || !searchInput.value) return;
+        
+        const searchTerm = searchInput.value.toLowerCase();
+        if (searchTerm.length < 2) return;
+
+        stockRows.forEach(row => {
+            if (row.style.display !== 'none') {
+                const cells = row.querySelectorAll('td');
+                cells.forEach(cell => {
+                    if (cell.querySelector('.btn-group')) return; // Skip action buttons
+                    
+                    const originalText = cell.textContent;
+                    const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+                    const highlightedText = originalText.replace(regex, '<mark>$1</mark>');
+                    
+                    if (highlightedText !== originalText) {
+                        cell.innerHTML = highlightedText;
+                    }
+                });
+            }
+        });
+    }
+
+    // Enhanced search with highlighting
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            filterStock();
+            // Clear previous highlights
+            stockRows.forEach(row => {
+                const cells = row.querySelectorAll('td');
+                cells.forEach(cell => {
+                    if (cell.querySelector('.btn-group')) return;
+                    const text = cell.textContent;
+                    cell.innerHTML = text;
+                });
+            });
+            // Add new highlights
+            if (this.value.length >= 2) {
+                highlightSearchTerms();
+            }
+        });
+    }
+
+    // Quick filter buttons for common actions
+    const quickFilters = {
+        showOutOfStock: () => {
+            if (statusFilter) statusFilter.value = 'out';
+            filterStock();
+        },
+        showLowStock: () => {
+            if (statusFilter) statusFilter.value = 'low';
+            filterStock();
+        },
+        showInStock: () => {
+            if (statusFilter) statusFilter.value = 'in';
+            filterStock();
+        }
+    };
+
+    // Expose quick filters globally for potential use
+    window.stockFilters = quickFilters;
+
+    function updateStockBulkToolbar() {
+        const selectedBoxes = document.querySelectorAll('.stock-checkbox:checked');
+        const count = selectedBoxes.length;
+        
+        if (count > 0) {
+            bulkStockToolbar.style.display = 'block';
+            selectedStockCountSpan.textContent = count;
+        } else {
+            bulkStockToolbar.style.display = 'none';
+        }
+        
+        // Update select all checkbox state
+        if (selectAllStockCheckbox) {
+            const visibleCheckboxes = Array.from(stockCheckboxes).filter(cb => {
+                const row = cb.closest('.stock-row');
+                return row && row.style.display !== 'none';
+            });
+            const visibleChecked = visibleCheckboxes.filter(cb => cb.checked);
+            
+            selectAllStockCheckbox.checked = visibleCheckboxes.length > 0 && visibleChecked.length === visibleCheckboxes.length;
+            selectAllStockCheckbox.indeterminate = visibleChecked.length > 0 && visibleChecked.length < visibleCheckboxes.length;
+        }
+    }
+
+    // Select All functionality for stock
+    if (selectAllStockCheckbox) {
+        selectAllStockCheckbox.addEventListener('change', function() {
+            const visibleCheckboxes = Array.from(stockCheckboxes).filter(cb => {
+                const row = cb.closest('.stock-row');
+                return row && row.style.display !== 'none';
+            });
+            
+            visibleCheckboxes.forEach(cb => {
+                cb.checked = this.checked;
+            });
+            updateStockBulkToolbar();
+        });
+    }
+
+    // Individual checkbox changes for stock
+    stockCheckboxes.forEach(checkbox => {
+        checkbox.addEventListener('change', updateStockBulkToolbar);
+    });
+
+    // Clear stock selection
+    if (clearStockSelectionBtn) {
+        clearStockSelectionBtn.addEventListener('click', function() {
+            stockCheckboxes.forEach(cb => cb.checked = false);
+            updateStockBulkToolbar();
+        });
+    }
+
+    // Bulk delete stock functionality
+    if (bulkDeleteStockBtn) {
+        bulkDeleteStockBtn.addEventListener('click', function() {
+            const selectedBoxes = document.querySelectorAll('.stock-checkbox:checked');
+            const selectedIds = Array.from(selectedBoxes).map(cb => cb.value);
+            
+            if (selectedIds.length === 0) {
+                alert('No stock items selected for deletion.');
+                return;
+            }
+            
+            const confirmMsg = `Are you sure you want to delete ${selectedIds.length} stock item(s)? This action cannot be undone.`;
+            if (confirm(confirmMsg)) {
+                bulkDeleteStock(selectedIds);
+            }
+        });
+    }
+
+    // Bulk export selected stock
+    if (bulkExportStockBtn) {
+        bulkExportStockBtn.addEventListener('click', function() {
+            const selectedBoxes = document.querySelectorAll('.stock-checkbox:checked');
+            if (selectedBoxes.length === 0) {
+                alert('No stock items selected for export.');
+                return;
+            }
+            exportSelectedStockToCSV(selectedBoxes);
+        });
+    }
+
+    function bulkDeleteStock(stockIds) {
+        const deletePromises = stockIds.map(id => {
+            return fetch(`/delete/stock/${id}`, {
+                method: 'POST'
+            });
+        });
+
+        // Show loading state
+        const originalText = bulkDeleteStockBtn.innerHTML;
+        bulkDeleteStockBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deleting...';
+        bulkDeleteStockBtn.disabled = true;
+
+        Promise.all(deletePromises)
+            .then(responses => {
+                const failed = responses.filter(r => !r.ok);
+                if (failed.length > 0) {
+                    alert(`${failed.length} stock item(s) could not be deleted. Please try again.`);
+                } else {
+                    location.reload();
+                }
+            })
+            .catch(error => {
+                alert('Error deleting stock items: ' + error.message);
+            })
+            .finally(() => {
+                bulkDeleteStockBtn.innerHTML = originalText;
+                bulkDeleteStockBtn.disabled = false;
+            });
+    }
+
+    function exportSelectedStockToCSV(selectedCheckboxes) {
+        const selectedRows = Array.from(selectedCheckboxes).map(cb => cb.closest('.stock-row')).filter(row => row);
+        
+        // CSV Headers
+        const headers = ['Product', 'SKU', 'Warehouse', 'Location', 'Available', 'Reserved', 'Total', 'Batch ID', 'Expiry Date', 'Status'];
+        let csvContent = headers.join(',') + '\n';
+
+        // CSV Data
+        selectedRows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 10) { // Account for checkbox column and new batch column
+                // Extract batch info from the batch info cell
+                const batchCell = cells[8];
+                const batchBadge = batchCell.querySelector('.badge');
+                const expirySmall = batchCell.querySelector('small');
+                const batchId = batchBadge ? batchBadge.textContent.trim() : '';
+                const expiryDate = expirySmall ? expirySmall.textContent.replace('Exp: ', '').trim() : '';
+                
+                const rowData = [
+                    `"${cells[1].textContent.trim()}"`,  // Product (skip checkbox column)
+                    `"${cells[2].textContent.trim()}"`,  // SKU
+                    `"${cells[3].textContent.trim()}"`,  // Warehouse
+                    `"${cells[4].textContent.trim()}"`,  // Location
+                    `"${cells[5].textContent.trim()}"`,  // Available
+                    `"${cells[6].textContent.trim()}"`,  // Reserved
+                    `"${cells[7].textContent.trim()}"`,  // Total
+                    `"${batchId}"`,                       // Batch ID
+                    `"${expiryDate}"`,                    // Expiry Date
+                    `"${cells[9].textContent.trim()}"`    // Status
+                ];
+                csvContent += rowData.join(',') + '\n';
+            }
+        });
+
+        // Download CSV
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        if (link.download !== undefined) {
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `selected_stock_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Show success feedback
+            const originalText = bulkExportStockBtn.innerHTML;
+            bulkExportStockBtn.innerHTML = '<i class="fas fa-check me-1"></i>Exported!';
+            bulkExportStockBtn.classList.remove('btn-outline-primary');
+            bulkExportStockBtn.classList.add('btn-success');
+            setTimeout(() => {
+                bulkExportStockBtn.innerHTML = originalText;
+                bulkExportStockBtn.classList.remove('btn-success');
+                bulkExportStockBtn.classList.add('btn-outline-primary');
+            }, 2000);
+        }
+    }
+
+    // Update toolbar when filters change
+    const originalStockFilterFunction = filterStock;
+    window.filterStock = function() {
+        originalStockFilterFunction();
+        updateStockBulkToolbar();
+    };
+
+    // CSV Export functionality
+    const exportBtn = document.getElementById('export-stock');
+    if (exportBtn) {
+        exportBtn.addEventListener('click', function() {
+            exportStockToCSV();
+        });
+    }
+
+    function exportStockToCSV() {
+        const visibleRows = Array.from(stockRows).filter(row => row.style.display !== 'none');
+        
+        if (visibleRows.length === 0) {
+            alert('No stock items to export. Please adjust your filters.');
+            return;
+        }
+
+        // CSV Headers
+        const headers = ['Product', 'SKU', 'Warehouse', 'Location', 'Available', 'Reserved', 'Total', 'Batch ID', 'Expiry Date', 'Status'];
+        let csvContent = headers.join(',') + '\n';
+
+        // CSV Data
+        visibleRows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 9) {
+                // Extract batch info from the batch info cell
+                const batchCell = cells[7];
+                const batchBadge = batchCell.querySelector('.badge');
+                const expirySmall = batchCell.querySelector('small');
+                const batchId = batchBadge ? batchBadge.textContent.trim() : '';
+                const expiryDate = expirySmall ? expirySmall.textContent.replace('Exp: ', '').trim() : '';
+                
+                const rowData = [
+                    `"${cells[1].textContent.trim()}"`,  // Product (skip checkbox)
+                    `"${cells[2].textContent.trim()}"`,  // SKU
+                    `"${cells[3].textContent.trim()}"`,  // Warehouse
+                    `"${cells[4].textContent.trim()}"`,  // Location
+                    `"${cells[5].textContent.trim()}"`,  // Available
+                    `"${cells[6].textContent.trim()}"`,  // Reserved
+                    `"${cells[7].textContent.trim()}"`,  // Total
+                    `"${batchId}"`,                       // Batch ID
+                    `"${expiryDate}"`,                    // Expiry Date
+                    `"${cells[8].textContent.trim()}"`    // Status
+                ];
+                csvContent += rowData.join(',') + '\n';
+            }
+        });
+
+        // Download CSV
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        if (link.download !== undefined) {
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `stock_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Show success feedback
+            const originalText = exportBtn.innerHTML;
+            exportBtn.innerHTML = '<i class="fas fa-check"></i> Exported!';
+            exportBtn.classList.remove('btn-outline-secondary');
+            exportBtn.classList.add('btn-success');
+            setTimeout(() => {
+                exportBtn.innerHTML = originalText;
+                exportBtn.classList.remove('btn-success');
+                exportBtn.classList.add('btn-outline-secondary');
+            }, 2000);
+        }
+    }
+});
+</script>
+{% endblock %}

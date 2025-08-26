@@ -1,0 +1,146 @@
+{% extends "base.html" %}
+
+{% block title %}Edit User - Lab Manager App{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-8 col-lg-6">
+        <!-- Header Section -->
+        <div class="text-center mb-4">
+            <h2 class="text-muted mb-2">
+                <i class="fas fa-user-edit me-2"></i>Edit User Account
+            </h2>
+            <p class="text-muted">Update user information and change password</p>
+        </div>
+
+        <!-- Edit User Form Card -->
+        <div class="card shadow">
+            <div class="card-body p-4">
+                <form method="POST" id="editUserForm">
+                    <div class="mb-3">
+                        <label for="username" class="form-label">
+                            <i class="fas fa-user me-2"></i>Username
+                        </label>
+                        <input type="text" 
+                               class="form-control form-control-lg" 
+                               id="username" 
+                               name="username" 
+                               value="{{ user.username }}"
+                               required 
+                               readonly
+                               style="background-color: #f8f9fa;">
+                        <div class="form-text">Username cannot be changed</div>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="role" class="form-label">
+                            <i class="fas fa-user-tag me-2"></i>Role
+                        </label>
+                        <select class="form-select form-select-lg" id="role" name="role" required>
+                            <option value="admin" {% if user.role == 'admin' %}selected{% endif %}>Admin (Full Access)</option>
+                            <option value="standard" {% if user.role == 'standard' %}selected{% endif %}>Standard (CRUD Access)</option>
+                            <option value="guest" {% if user.role == 'guest' %}selected{% endif %}>Guest (Read-Only)</option>
+                        </select>
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="email" class="form-label">
+                            <i class="fas fa-envelope me-2"></i>Email
+                        </label>
+                        <input type="email" 
+                               class="form-control form-control-lg" 
+                               id="email" 
+                               name="email"
+                               value="{{ user.email or '' }}"
+                               placeholder="Enter email address">
+                    </div>
+                    
+                    <hr class="my-4">
+                    
+                    <div class="mb-3">
+                        <h5 class="text-muted mb-3">
+                            <i class="fas fa-key me-2"></i>Change Password
+                        </h5>
+                        <p class="text-muted small">Leave password fields blank to keep the current password</p>
+                    </div>
+                    
+                    <div class="mb-3">
+                        <label for="new_password" class="form-label">
+                            <i class="fas fa-lock me-2"></i>New Password
+                        </label>
+                        <input type="password" 
+                               class="form-control form-control-lg" 
+                               id="new_password" 
+                               name="new_password"
+                               placeholder="Enter new password (optional)">
+                    </div>
+                    
+                    <div class="mb-4">
+                        <label for="confirm_new_password" class="form-label">
+                            <i class="fas fa-lock me-2"></i>Confirm New Password
+                        </label>
+                        <input type="password" 
+                               class="form-control form-control-lg" 
+                               id="confirm_new_password" 
+                               name="confirm_new_password"
+                               placeholder="Confirm new password">
+                        <div id="password-match" class="form-text"></div>
+                    </div>
+                    
+                    <div class="d-grid gap-2">
+                        <button type="submit" class="btn btn-warning btn-lg">
+                            <i class="fas fa-save me-2"></i>Update User
+                        </button>
+                        <a href="{{ url_for('auth.manage_users') }}" class="btn btn-outline-secondary">
+                            <i class="fas fa-arrow-left me-2"></i>Back to User Management
+                        </a>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const newPassword = document.getElementById('new_password');
+    const confirmNewPassword = document.getElementById('confirm_new_password');
+    const passwordMatch = document.getElementById('password-match');
+    const form = document.getElementById('editUserForm');
+    
+    function checkPasswordMatch() {
+        if (newPassword.value === '' && confirmNewPassword.value === '') {
+            passwordMatch.textContent = '';
+            passwordMatch.className = 'form-text';
+        } else if (newPassword.value === '' && confirmNewPassword.value !== '') {
+            passwordMatch.textContent = '✗ Please enter a new password';
+            passwordMatch.className = 'form-text text-danger';
+        } else if (newPassword.value !== '' && confirmNewPassword.value === '') {
+            passwordMatch.textContent = '✗ Please confirm the new password';
+            passwordMatch.className = 'form-text text-danger';
+        } else if (newPassword.value === confirmNewPassword.value) {
+            passwordMatch.textContent = '✓ Passwords match';
+            passwordMatch.className = 'form-text text-success';
+        } else {
+            passwordMatch.textContent = '✗ Passwords do not match';
+            passwordMatch.className = 'form-text text-danger';
+        }
+    }
+    
+    newPassword.addEventListener('input', checkPasswordMatch);
+    confirmNewPassword.addEventListener('input', checkPasswordMatch);
+    
+    form.addEventListener('submit', function(e) {
+        if (newPassword.value !== '' || confirmNewPassword.value !== '') {
+            if (newPassword.value !== confirmNewPassword.value) {
+                e.preventDefault();
+                alert('New passwords do not match. Please try again.');
+                confirmNewPassword.focus();
+            }
+        }
+    });
+});
+</script>
+{% endblock %} 

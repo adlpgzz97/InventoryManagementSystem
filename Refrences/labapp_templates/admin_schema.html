@@ -1,0 +1,385 @@
+{% extends 'base.html' %}
+
+{% block title %}Database Schema - Admin{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h1 class="mb-0">
+            <i class="fas fa-database text-primary"></i>
+            Database Schema Viewer
+        </h1>
+        <div>
+            <button id="copy-schema-btn" class="btn btn-outline-primary me-2">
+                <i class="fas fa-copy"></i> Copy Schema
+            </button>
+            <button id="expand-all-btn" class="btn btn-outline-secondary me-2">
+                <i class="fas fa-expand"></i> Expand All
+            </button>
+            <button id="collapse-all-btn" class="btn btn-outline-secondary">
+                <i class="fas fa-compress"></i> Collapse All
+            </button>
+        </div>
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="fas fa-info-circle"></i>
+                        Database Overview
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-3">
+                            <div class="text-center">
+                                <h3 class="text-primary">{{ schema_data|length }}</h3>
+                                <p class="text-muted">Total Tables</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-center">
+                                <h3 class="text-success" id="total-columns">-</h3>
+                                <p class="text-muted">Total Columns</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-center">
+                                <h3 class="text-info" id="total-relationships">-</h3>
+                                <p class="text-muted">Foreign Keys</p>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <div class="text-center">
+                                <h3 class="text-warning" id="total-rows">-</h3>
+                                <p class="text-muted">Total Rows</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row mt-4">
+        <div class="col-12">
+            <div class="accordion" id="schemaAccordion">
+                {% for table_name, table_data in schema_data.items() %}
+                <div class="accordion-item">
+                    <h2 class="accordion-header" id="heading-{{ table_name }}">
+                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
+                                data-bs-target="#collapse-{{ table_name }}" aria-expanded="false" 
+                                aria-controls="collapse-{{ table_name }}">
+                            <div class="d-flex justify-content-between align-items-center w-100 me-3">
+                                <div>
+                                    <strong class="text-primary">{{ table_name|title }}</strong>
+                                    <span class="badge bg-secondary ms-2">{{ table_data.row_count }} rows</span>
+                                </div>
+                                <div class="text-muted small">
+                                    {{ table_data.columns|length }} columns
+                                    {% if table_data.foreign_keys %}
+                                        • {{ table_data.foreign_keys|length }} foreign keys
+                                    {% endif %}
+                                </div>
+                            </div>
+                        </button>
+                    </h2>
+                    <div id="collapse-{{ table_name }}" class="accordion-collapse collapse" 
+                         aria-labelledby="heading-{{ table_name }}" data-bs-parent="#schemaAccordion">
+                        <div class="accordion-body">
+                            <!-- Columns Section -->
+                            <div class="mb-4">
+                                <h6 class="text-primary mb-3">
+                                    <i class="fas fa-columns"></i> Columns
+                                </h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm table-striped">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Column</th>
+                                                <th>Type</th>
+                                                <th>Nullable</th>
+                                                <th>Default</th>
+                                                <th>Constraints</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for column in table_data.columns %}
+                                            <tr>
+                                                <td>
+                                                    <strong>{{ column.name }}</strong>
+                                                    {% if column.name in table_data.primary_keys %}
+                                                        <span class="badge bg-primary ms-1">PK</span>
+                                                    {% endif %}
+                                                    {% for fk in table_data.foreign_keys %}
+                                                        {% if fk.column == column.name %}
+                                                            <span class="badge bg-info ms-1">FK</span>
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                    {% for uc in table_data.unique_constraints %}
+                                                        {% if uc.column == column.name %}
+                                                            <span class="badge bg-warning ms-1">UQ</span>
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                </td>
+                                                <td>
+                                                    <code>{{ column.type }}</code>
+                                                    {% if column.max_length %}
+                                                        ({{ column.max_length }})
+                                                    {% endif %}
+                                                    {% if column.precision %}
+                                                        ({{ column.precision }}{% if column.scale %},{{ column.scale }}{% endif %})
+                                                    {% endif %}
+                                                </td>
+                                                <td>
+                                                    {% if column.nullable == 'YES' %}
+                                                        <span class="text-success">Yes</span>
+                                                    {% else %}
+                                                        <span class="text-danger">No</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td>
+                                                    {% if column.default %}
+                                                        <code class="small">{{ column.default }}</code>
+                                                    {% else %}
+                                                        <span class="text-muted">-</span>
+                                                    {% endif %}
+                                                </td>
+                                                <td>
+                                                    {% for fk in table_data.foreign_keys %}
+                                                        {% if fk.column == column.name %}
+                                                            <div class="small text-info">
+                                                                → {{ fk.references_table }}.{{ fk.references_column }}
+                                                            </div>
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                </td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Relationships Section -->
+                            {% if table_data.foreign_keys %}
+                            <div class="mb-4">
+                                <h6 class="text-info mb-3">
+                                    <i class="fas fa-link"></i> Foreign Key Relationships
+                                </h6>
+                                <div class="row">
+                                    {% for fk in table_data.foreign_keys %}
+                                    <div class="col-md-6 mb-2">
+                                        <div class="card border-info">
+                                            <div class="card-body py-2">
+                                                <div class="d-flex justify-content-between align-items-center">
+                                                    <div>
+                                                        <strong>{{ fk.column }}</strong>
+                                                        <i class="fas fa-arrow-right text-info mx-2"></i>
+                                                        <strong>{{ fk.references_table }}.{{ fk.references_column }}</strong>
+                                                    </div>
+                                                    <small class="text-muted">{{ fk.constraint_name }}</small>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {% endfor %}
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            <!-- Indexes Section -->
+                            {% if table_data.indexes %}
+                            <div class="mb-4">
+                                <h6 class="text-warning mb-3">
+                                    <i class="fas fa-search"></i> Indexes
+                                </h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Index Name</th>
+                                                <th>Definition</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for index in table_data.indexes %}
+                                            <tr>
+                                                <td><code>{{ index.name }}</code></td>
+                                                <td><code class="small">{{ index.definition }}</code></td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+
+                            <!-- Check Constraints Section -->
+                            {% if table_data.check_constraints %}
+                            <div class="mb-4">
+                                <h6 class="text-danger mb-3">
+                                    <i class="fas fa-check-circle"></i> Check Constraints
+                                </h6>
+                                <div class="table-responsive">
+                                    <table class="table table-sm">
+                                        <thead class="table-light">
+                                            <tr>
+                                                <th>Constraint Name</th>
+                                                <th>Check Clause</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {% for check in table_data.check_constraints %}
+                                            <tr>
+                                                <td><code>{{ check.constraint_name }}</code></td>
+                                                <td><code class="small">{{ check.check_clause }}</code></td>
+                                            </tr>
+                                            {% endfor %}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Hidden textarea for copying -->
+<textarea id="schema-text" style="position: absolute; left: -9999px;"></textarea>
+
+<!-- Success Toast -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3">
+    <div id="copyToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header">
+            <i class="fas fa-check-circle text-success me-2"></i>
+            <strong class="me-auto">Success</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body">
+            Schema copied to clipboard!
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    // Calculate totals
+    let totalColumns = 0;
+    let totalRelationships = 0;
+    let totalRows = 0;
+    
+    {% for table_name, table_data in schema_data.items() %}
+        totalColumns += {{ table_data.columns|length }};
+        totalRelationships += {{ table_data.foreign_keys|length }};
+        totalRows += {{ table_data.row_count }};
+    {% endfor %}
+    
+    document.getElementById('total-columns').textContent = totalColumns;
+    document.getElementById('total-relationships').textContent = totalRelationships;
+    document.getElementById('total-rows').textContent = totalRows.toLocaleString();
+    
+    // Expand/Collapse All buttons
+    document.getElementById('expand-all-btn').addEventListener('click', function() {
+        const accordionItems = document.querySelectorAll('.accordion-collapse');
+        accordionItems.forEach(item => {
+            const bsCollapse = new bootstrap.Collapse(item, { show: true });
+        });
+    });
+    
+    document.getElementById('collapse-all-btn').addEventListener('click', function() {
+        const accordionItems = document.querySelectorAll('.accordion-collapse');
+        accordionItems.forEach(item => {
+            const bsCollapse = new bootstrap.Collapse(item, { hide: true });
+        });
+    });
+    
+    // Copy Schema button
+    document.getElementById('copy-schema-btn').addEventListener('click', function() {
+        const schemaText = generateSchemaText();
+        const textarea = document.getElementById('schema-text');
+        textarea.value = schemaText;
+        textarea.select();
+        document.execCommand('copy');
+        
+        // Show toast
+        const toast = new bootstrap.Toast(document.getElementById('copyToast'));
+        toast.show();
+    });
+    
+    function generateSchemaText() {
+        let text = 'DATABASE SCHEMA OVERVIEW\n';
+        text += '='.repeat(50) + '\n\n';
+        text += `Total Tables: ${document.getElementById('total-columns').textContent}\n`;
+        text += `Total Columns: ${document.getElementById('total-columns').textContent}\n`;
+        text += `Total Foreign Keys: ${document.getElementById('total-relationships').textContent}\n`;
+        text += `Total Rows: ${document.getElementById('total-rows').textContent}\n\n`;
+        
+        {% for table_name, table_data in schema_data.items() %}
+        text += `TABLE: ${ '{{ table_name }}'.toUpperCase() }\n`;
+        text += '-'.repeat(30) + '\n';
+        text += `Rows: {{ table_data.row_count }}\n`;
+        text += `Columns: {{ table_data.columns|length }}\n`;
+        {% if table_data.foreign_keys %}
+        text += `Foreign Keys: {{ table_data.foreign_keys|length }}\n`;
+        {% endif %}
+        text += '\nCOLUMNS:\n';
+        {% for column in table_data.columns %}
+        text += `  {{ column.name }} ({{ column.type }})`;
+        {% if column.nullable == 'YES' %}
+        text += ' NULL';
+        {% else %}
+        text += ' NOT NULL';
+        {% endif %}
+        {% if column.default %}
+        text += ' DEFAULT {{ column.default }}';
+        {% endif %}
+        {% if column.name in table_data.primary_keys %}
+        text += ' [PRIMARY KEY]';
+        {% endif %}
+        {% for fk in table_data.foreign_keys %}
+        {% if fk.column == column.name %}
+        text += ' [FK -> {{ fk.references_table }}.{{ fk.references_column }}]';
+        {% endif %}
+        {% endfor %}
+        text += '\n';
+        {% endfor %}
+        
+        {% if table_data.foreign_keys %}
+        text += '\nFOREIGN KEYS:\n';
+        {% for fk in table_data.foreign_keys %}
+        text += `  {{ fk.column }} -> {{ fk.references_table }}.{{ fk.references_column }} ({{ fk.constraint_name }})\n`;
+        {% endfor %}
+        {% endif %}
+        
+        {% if table_data.indexes %}
+        text += '\nINDEXES:\n';
+        {% for index in table_data.indexes %}
+        text += `  {{ index.name }}: {{ index.definition }}\n`;
+        {% endfor %}
+        {% endif %}
+        
+        {% if table_data.check_constraints %}
+        text += '\nCHECK CONSTRAINTS:\n';
+        {% for check in table_data.check_constraints %}
+        text += `  {{ check.constraint_name }}: {{ check.check_clause }}\n`;
+        {% endfor %}
+        {% endif %}
+        
+        text += '\n' + '='.repeat(50) + '\n\n';
+        {% endfor %}
+        
+        return text;
+    }
+});
+</script>
+{% endblock %} 

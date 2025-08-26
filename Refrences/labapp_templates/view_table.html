@@ -1,0 +1,1061 @@
+{% extends 'base.html' %}
+{% import 'form_macros.html' as forms %}
+
+{% block title %}View {{ table_name|capitalize }}{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="d-flex align-items-center">
+        <h2 class="mb-0 me-3">{{ table_name|capitalize }}</h2>
+        <form class="d-flex me-3" method="get" action="">
+            <input type="text" name="q" class="form-control form-control-sm" style="width: 200px;" placeholder="Search..." value="{{ request.args.get('q', '') }}">
+            <button type="submit" class="btn btn-outline-primary btn-sm ms-2">Search</button>
+            {% if request.args.get('q', '') %}
+                <button type="button" id="clear-search" class="btn btn-outline-secondary btn-sm ms-1">Clear</button>
+            {% endif %}
+        </form>
+    </div>
+    <div class="d-flex align-items-center">
+        {% if current_user.is_authenticated and current_user.can_write() %}
+            <a href="/add/{{ table_name }}" class="btn btn-success btn-sm me-2">
+                <i class="fas fa-plus"></i> Add
+            </a>
+        {% endif %}
+        {% if has_uuid %}
+            <a href="/toggle-uuid" class="btn btn-outline-info btn-sm me-2" title="Toggle UUID Column">
+                <i class="fas fa-eye{% if show_uuid %}-slash{% endif %}"></i> {% if show_uuid %}Hide{% else %}Show{% endif %} UUID
+            </a>
+        {% endif %}
+        {% if 'file_location' in colnames %}
+            <button id="toggle-file-path" class="btn btn-outline-warning btn-sm me-2" title="Toggle File Path Display">
+                <i class="fas fa-file-alt"></i> <span id="file-display-text">Show Full Path</span>
+            </button>
+        {% endif %}
+        <button id="sync-now-btn" class="btn btn-outline-secondary btn-sm" title="Sync Now">
+            <i class="fas fa-sync-alt"></i> Sync
+        </button>
+    </div>
+</div>
+<div id="sync-timer" class="text-end text-muted mb-2" style="font-size: 0.8em;"></div>
+<table class="table table-striped table-bordered" id="data-table">
+    <thead class="table-light">
+        <tr>
+            {% for col in colnames %}
+                <th class="sortable" data-col="{{ col }}">{{ prettify_column_name(col) }} <span class="sort-arrow"></span></th>
+            {% endfor %}
+            <th style="width: 110px;">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for row in rows %}
+        <tr data-row-id="{{ row[0]|string|trim }}">
+            {% for field in row %}
+                {% set col = colnames[loop.index0] %}
+                {% if fk_relationships and col in fk_relationships %}
+                    {% set target_table, target_col = fk_relationships[col] %}
+                    <td data-col="{{ col }}">{{ forms.clickable_fk_cell(field, target_table, target_col, request=request) }}</td>
+                {% elif col == 'file_location' and field %}
+                    <td data-col="{{ col }}">
+                        <span class="text-muted">
+                            <i class="fas fa-file-alt me-1"></i><span class="file-display-content">{{ field.split('/')[-1] if '/' in field else field.split('\\')[-1] if '\\' in field else field }}</span>
+                        </span>
+                        <small class="d-block text-muted file-display-note">(Filename shown - click toggle to show full path)</small>
+                    </td>
+                {% else %}
+                    <td data-col="{{ col }}">{% if field is not none %}{{ field }}{% endif %}</td>
+                {% endif %}
+            {% endfor %}
+            <td class="text-nowrap" style="width: 110px;">
+                {% if current_user.is_authenticated and current_user.can_write() %}
+                    {{ forms.action_buttons(table_name, row[0], can_write=True, colnames=colnames, row_data=row) }}
+                {% endif %}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<a href="/" class="btn btn-secondary">Back to Home</a>
+{% endblock %}
+
+{% block scripts %}
+<style>
+/* Highlight styles for foreign key navigation */
+.highlighted-row {
+    background-color: #fff3cd !important;
+    border-left: 4px solid #ffc107 !important;
+    animation: highlight-pulse 2s ease-in-out;
+}
+
+@keyframes highlight-pulse {
+    0%, 100% { background-color: #fff3cd; }
+    50% { background-color: #ffeaa7; }
+}
+
+.fk-link {
+    text-decoration: none;
+    transition: all 0.2s ease;
+}
+
+.fk-link:hover {
+    text-decoration: underline;
+    transform: translateY(-1px);
+}
+
+.fk-link:active {
+    transform: translateY(0);
+}
+</style>
+<script>
+const table_name = "{{ table_name }}";
+const fkRelationships = {{ fk_relationships|tojson|safe }};
+const canWrite = {% if current_user.is_authenticated and current_user.can_write() %}true{% else %}false{% endif %};
+let showFullPath = false; // Global variable to track file path display mode
+let browseHandlersAttached = false; // Flag to prevent multiple event listener attachments
+// --- Modal Edit Logic ---
+const editModal = new bootstrap.Modal(document.getElementById('editModal'));
+document.querySelectorAll('.edit-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+        const table = this.getAttribute('data-table');
+        const rowId = this.getAttribute('data-id');
+        fetch(`/edit/${table}/${rowId}?modal=1`)
+            .then(response => response.text())
+            .then(html => {
+                document.getElementById('editModalBody').innerHTML = html;
+                editModal.show();
+                attachEditFormHandler();
+            });
+    });
+});
+// --- AJAX Edit Form Submission ---
+function attachEditFormHandler() {
+    const form = document.getElementById('editRowForm');
+    if (form) {
+        console.log('Attaching edit form handler to:', form);
+        form.onsubmit = function(e) {
+            e.preventDefault();
+            console.log('Form submitted, action:', form.action);
+            const formData = new FormData(form);
+            
+            // Log form data for debugging
+            for (let [key, value] of formData.entries()) {
+                console.log('Form field:', key, '=', value);
+            }
+            
+            fetch(form.action, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                console.log('Response status:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('Server response:', data);
+                if (data.success) {
+                    console.log('Update successful, closing modal...');
+                    
+                    // Close the modal using multiple methods to ensure it closes
+                    const modalElement = document.getElementById('editModal');
+                    if (modalElement) {
+                        // Method 1: Bootstrap modal API
+                        const bsModal = bootstrap.Modal.getInstance(modalElement);
+                        if (bsModal) {
+                            console.log('Closing modal via Bootstrap API');
+                            bsModal.hide();
+                        } else {
+                            console.log('Bootstrap modal instance not found, using manual close');
+                            // Method 2: Manual close
+                            modalElement.style.display = 'none';
+                            modalElement.classList.remove('show');
+                            document.body.classList.remove('modal-open');
+                            const backdrop = document.querySelector('.modal-backdrop');
+                            if (backdrop) backdrop.remove();
+                        }
+                    } else {
+                        console.error('Modal element not found!');
+                    }
+                    
+                    console.log('Updating table...');
+                    // Update table immediately
+                    fetchAndUpdateTable();
+                    
+                    console.log('Showing success message...');
+                    // Show success message
+                    showCenterAlert('Row updated successfully!', 'success');
+                } else {
+                    console.log('Update failed, showing error in modal');
+                    // Show error in modal
+                    document.getElementById('editModalBody').innerHTML = data.html;
+                    attachEditFormHandler();
+                }
+            })
+            .catch(error => {
+                console.error('Error updating row:', error);
+                showCenterAlert('Error updating row: ' + error.message, 'danger');
+            });
+        };
+    } else {
+        console.error('Edit form not found!');
+    }
+    
+    // Attach button handlers for the modal form
+    attachButtonHandlers();
+}
+// Helper to update the table row in place
+function updateTableRow(form, newRow) {
+    const rowId = form.elements[0].value;
+    const table = document.querySelector('table');
+    const rows = table.querySelectorAll('tbody tr');
+    for (let tr of rows) {
+        if (tr.children[1] && tr.children[1].textContent.trim() === rowId) {
+            for (let i = 0; i < newRow.length; i++) {
+                tr.children[i + 1].textContent = newRow[i] !== null ? newRow[i] : '';
+            }
+            break;
+        }
+    }
+}
+
+// Helper to show center alerts
+function showCenterAlert(message, type = 'info') {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+    alertDiv.innerHTML = `
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    
+    // Insert at the top of the content area
+    const container = document.querySelector('.container');
+    if (container) {
+        container.insertBefore(alertDiv, container.firstChild);
+        
+        // Auto-remove after 5 seconds
+        setTimeout(() => {
+            if (alertDiv.parentNode) {
+                alertDiv.remove();
+            }
+        }, 5000);
+    }
+}
+// --- Periodic AJAX Sync ---
+let lastSyncSeconds = 0;
+let syncInterval = 30; // seconds
+let syncTimerId = null;
+let periodicSyncId = null;
+let lastTableData = null;
+let apiEndpoint = `/api/table/${table_name}`;
+
+function updateSyncTimer() {
+    lastSyncSeconds++;
+    const syncTimer = document.getElementById('sync-timer');
+    if (syncTimer) {
+        syncTimer.textContent = `Last synced with database: ${lastSyncSeconds} second${lastSyncSeconds === 1 ? '' : 's'} ago`;
+    }
+}
+function resetSyncTimer() {
+    lastSyncSeconds = 0;
+    updateSyncTimer();
+}
+function fetchAndUpdateTable() {
+    // Get current search query
+    const searchQuery = document.querySelector('input[name="q"]').value;
+    const searchUrl = searchQuery ? `${apiEndpoint}?q=${encodeURIComponent(searchQuery)}` : apiEndpoint;
+    
+    fetch(searchUrl)
+        .then(response => response.json())
+        .then(data => {
+            if (!data || !data.colnames || !data.rows) return;
+            updateTableBody(data.colnames, data.rows);
+            resetSyncTimer();
+        })
+        .catch(err => {
+            console.error('Sync error:', err);
+            const syncTimer = document.getElementById('sync-timer');
+            if (syncTimer) syncTimer.textContent = 'Sync error!';
+        });
+}
+function updateTableBody(colnames, rows) {
+    const tbody = document.querySelector('#data-table tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    rows.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.setAttribute('data-row-id', String(row[0]).trim());
+        
+        // Data cells first
+        for (let i = 0; i < row.length; i++) {
+            const td = document.createElement('td');
+            const colName = colnames[i];
+            const value = row[i];
+            
+            // Add data-col attribute for robust column identification
+            td.setAttribute('data-col', colName);
+            
+            // Check if this is a foreign key column
+            if (fkRelationships && fkRelationships[colName]) {
+                const [targetTable, targetCol] = fkRelationships[colName];
+                if (value) {
+                    const link = document.createElement('a');
+                    link.href = `/table/${targetTable}?highlight=${targetCol}:${value}`;
+                    link.className = 'fk-link text-primary';
+                    link.setAttribute('data-target-table', targetTable);
+                    link.setAttribute('data-highlight-col', targetCol);
+                    link.setAttribute('data-highlight-value', value);
+                    link.title = `Click to view in ${targetTable.charAt(0).toUpperCase() + targetTable.slice(1)} table`;
+                    link.textContent = value;
+                    
+                    td.appendChild(link);
+                } else {
+                    const span = document.createElement('span');
+                    span.className = 'text-muted';
+                    span.textContent = '-';
+                    td.appendChild(span);
+                }
+            } else if (colName === 'file_location' && value) {
+                // Handle file_location column
+                const span = document.createElement('span');
+                span.className = 'text-muted';
+                
+                const icon = document.createElement('i');
+                icon.className = 'fas fa-file-alt me-1';
+                span.appendChild(icon);
+                
+                // Show full path or filename based on toggle state
+                let displayText = value;
+                if (!showFullPath) {
+                    // Extract filename from path
+                    displayText = value.split('/').pop() || value.split('\\').pop() || value;
+                }
+                span.appendChild(document.createTextNode(displayText));
+                
+                td.appendChild(span);
+                
+                const note = document.createElement('small');
+                note.className = 'd-block text-muted';
+                if (showFullPath) {
+                    note.textContent = '(Full path shown - click toggle to show filename only)';
+                } else {
+                    note.textContent = '(Filename shown - click toggle to show full path)';
+                }
+                td.appendChild(note);
+            } else {
+                td.textContent = value !== null ? value : '';
+            }
+            tr.appendChild(td);
+        }
+        
+        // Actions cell (now on the right)
+        const tdActions = document.createElement('td');
+        tdActions.className = 'text-nowrap';
+        tdActions.style.width = '110px';
+        
+        if (canWrite) {
+            // Build dropdown HTML
+            let dropdownHTML = `
+                <div class="dropdown">
+                    <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" id="actionDropdown${row[0]}" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-ellipsis-h"></i>
+                    </button>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="actionDropdown${row[0]}">
+                        <li><a class="dropdown-item edit-btn" href="#" data-table="${table_name}" data-id="${row[0]}">
+                            <i class="fas fa-edit me-2"></i>Edit
+                        </a></li>
+                        <li><a class="dropdown-item delete-row-btn" href="#" data-table="${table_name}" data-id="${row[0]}">
+                            <i class="fas fa-trash me-2"></i>Delete
+                        </a></li>
+            `;
+            
+            // Check if this table has file_location column and if this row has a file path
+            const fileLocationIndex = colnames.indexOf('file_location');
+            if (fileLocationIndex !== -1 && row[fileLocationIndex]) {
+                const filePath = row[fileLocationIndex];
+                dropdownHTML += `
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item open-location-btn" href="#" data-path="${filePath}">
+                            <i class="fas fa-folder-open me-2"></i>Open File Location
+                        </a></li>
+                        <li><a class="dropdown-item open-file-btn" href="#" data-path="${filePath}">
+                            <i class="fas fa-external-link-alt me-2"></i>Open File
+                        </a></li>
+                `;
+            }
+            
+            dropdownHTML += `
+                    </ul>
+                </div>
+            `;
+            
+            tdActions.innerHTML = dropdownHTML;
+        }
+        tr.appendChild(tdActions);
+        
+        tbody.appendChild(tr);
+    });
+    // Re-attach edit button handlers
+    document.querySelectorAll('.edit-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const table = this.getAttribute('data-table');
+            const rowId = this.getAttribute('data-id');
+            fetch(`/edit/${table}/${rowId}?modal=1`)
+                .then(response => response.text())
+                .then(html => {
+                    document.getElementById('editModalBody').innerHTML = html;
+                    editModal.show();
+                    attachEditFormHandler();
+                });
+        });
+    });
+    
+    
+    
+    // Re-apply sorting if needed
+    if (sortCol !== null) sortTable(sortCol);
+    
+    // Re-apply highlighting after AJAX update
+    highlightTargetRow();
+}
+// --- Toggle File Path Button ---
+const toggleFilePathBtn = document.getElementById('toggle-file-path');
+if (toggleFilePathBtn) {
+    toggleFilePathBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        showFullPath = !showFullPath;
+        const displayText = document.getElementById('file-display-text');
+        if (displayText) {
+            displayText.textContent = showFullPath ? 'Show Filename' : 'Show Full Path';
+        }
+        // Update the table to reflect the new display mode
+        updateStaticFileDisplay();
+        fetchAndUpdateTable();
+    });
+}
+
+// --- Sync Now Button ---
+const syncNowBtn = document.getElementById('sync-now-btn');
+if (syncNowBtn) {
+    syncNowBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        fetchAndUpdateTable();
+    });
+}
+// --- Update Static File Display ---
+function updateStaticFileDisplay() {
+    const fileCells = document.querySelectorAll('td[data-col="file_location"]');
+    fileCells.forEach(cell => {
+        const contentSpan = cell.querySelector('.file-display-content');
+        const noteSpan = cell.querySelector('.file-display-note');
+        
+        if (contentSpan && noteSpan) {
+            const fullPath = contentSpan.getAttribute('data-full-path') || contentSpan.textContent;
+            
+            if (showFullPath) {
+                contentSpan.textContent = fullPath;
+                noteSpan.textContent = '(Full path shown - click toggle to show filename only)';
+            } else {
+                const filename = fullPath.split('/').pop() || fullPath.split('\\').pop() || fullPath;
+                contentSpan.textContent = filename;
+                noteSpan.textContent = '(Filename shown - click toggle to show full path)';
+            }
+            
+            // Store the full path for future toggles
+            contentSpan.setAttribute('data-full-path', fullPath);
+        }
+    });
+}
+
+// --- Button Handlers Function ---
+function attachButtonHandlers() {
+    // Only attach browse handlers once to prevent duplicates
+    if (!browseHandlersAttached) {
+        browseHandlersAttached = true;
+        
+        // Browse button functionality for document links
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('browse-btn')) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+                console.log('Browse button clicked!');
+                const targetId = e.target.getAttribute('data-target');
+                console.log('Target ID:', targetId);
+                const fileInput = document.getElementById(`file-input-${targetId}`);
+                const targetInput = document.getElementById(targetId);
+                
+                console.log('File input found:', !!fileInput);
+                console.log('Target input found:', !!targetInput);
+                
+                if (fileInput && targetInput) {
+                    // Check if we're in desktop mode before triggering file input
+                    const isDesktopMode = (typeof pywebview !== 'undefined' && pywebview.api);
+                    
+                    if (isDesktopMode) {
+                        console.log('Desktop mode detected, using native file dialog directly...');
+                        // In desktop mode, call the native dialog directly without the HTML file input
+                        pywebview.api.get_file_path('').then(function(fullPath) {
+                            if (fullPath && fullPath.trim()) {
+                                targetInput.value = fullPath.trim();
+                                
+                                // Show success feedback
+                                const browseBtn = targetInput.parentElement.querySelector('.browse-btn');
+                                if (browseBtn) {
+                                    const originalText = browseBtn.textContent;
+                                    browseBtn.textContent = '✓ Selected';
+                                    browseBtn.classList.remove('btn-outline-primary');
+                                    browseBtn.classList.add('btn-success');
+                                    setTimeout(() => {
+                                        browseBtn.textContent = originalText;
+                                        browseBtn.classList.remove('btn-success');
+                                        browseBtn.classList.add('btn-outline-primary');
+                                    }, 2000);
+                                }
+                                
+                                console.log('File selected (desktop mode):', fullPath);
+                            }
+                        }).catch(function(error) {
+                            console.error('Error getting file path:', error);
+                            // Fallback to browser file input
+                            fileInput.value = '';
+                            setTimeout(() => {
+                                fileInput.click();
+                            }, 10);
+                        });
+                    } else {
+                        console.log('Web mode detected, using browser file input...');
+                        // Web mode - use browser file input
+                        fileInput.value = '';
+                        setTimeout(() => {
+                            fileInput.click();
+                        }, 10);
+                    }
+                } else {
+                    console.error('File input or target input not found!');
+                }
+            }
+        });
+        
+        // File input change handler
+        document.addEventListener('change', function(e) {
+            if (e.target.type === 'file' && e.target.id.startsWith('file-input-')) {
+                const targetId = e.target.id.replace('file-input-', '');
+                const targetInput = document.getElementById(targetId);
+                
+                if (targetInput && e.target.files.length > 0) {
+                    const file = e.target.files[0];
+                    
+                    // Check if we're running in desktop mode (PyWebView)
+                    const isDesktopMode = (typeof pywebview !== 'undefined' && pywebview.api);
+                    console.log('Desktop mode check:', isDesktopMode);
+                    console.log('pywebview.api available:', typeof pywebview !== 'undefined' && pywebview.api);
+                    
+                    if (isDesktopMode && typeof pywebview !== 'undefined' && pywebview.api) {
+                        console.log('Desktop mode detected, using native file dialog...');
+                        // Desktop mode - use native file dialog
+                        pywebview.api.get_file_path(file.name).then(function(fullPath) {
+                            if (fullPath && fullPath.trim()) {
+                                targetInput.value = fullPath.trim();
+                                
+                                // Show success feedback
+                                const browseBtn = targetInput.parentElement.querySelector('.browse-btn');
+                                if (browseBtn) {
+                                    const originalText = browseBtn.textContent;
+                                    browseBtn.textContent = '✓ Selected';
+                                    browseBtn.classList.remove('btn-outline-primary');
+                                    browseBtn.classList.add('btn-success');
+                                    setTimeout(() => {
+                                        browseBtn.textContent = originalText;
+                                        browseBtn.classList.remove('btn-success');
+                                        browseBtn.classList.add('btn-outline-primary');
+                                    }, 2000);
+                                }
+                                
+                                console.log('File selected (desktop mode):', file.name);
+                                console.log('Full path stored:', fullPath);
+                            }
+                        }).catch(function(error) {
+                            console.error('Error getting file path:', error);
+                            console.log('Falling back to web mode...');
+                            // Fallback to web mode approach
+                            const commonPaths = [
+                                'C:\\Users\\Documents\\',
+                                'C:\\Users\\Desktop\\',
+                                'C:\\Users\\Downloads\\',
+                                'D:\\Documents\\',
+                                'C:\\Users\\OneDrive\\Documents\\'
+                            ];
+                            
+                            const pathSuggestions = commonPaths.map(path => `${path}${file.name}`).join('\n');
+                            const promptMessage = `File "${file.name}" selected.\n\nNative file dialog failed. Please enter the full path manually.\n\nCommon locations:\n${pathSuggestions}\n\nOr enter your custom path:`;
+                            
+                            const fullPath = prompt(promptMessage, file.name);
+                            if (fullPath && fullPath.trim()) {
+                                targetInput.value = fullPath.trim();
+                            } else {
+                                targetInput.value = file.name; // Fallback to just filename
+                            }
+                        });
+                    } else {
+                        // Web mode - use existing browser-based approach
+                        let filePath = '';
+                        
+                        // Method 1: Try webkitRelativePath (works in some browsers)
+                        if (file.webkitRelativePath) {
+                            filePath = file.webkitRelativePath;
+                        } else if (file.name) {
+                            // Browser security prevents automatic full path access
+                            // Show a more helpful prompt with common path suggestions
+                            const commonPaths = [
+                                'C:\\Users\\Documents\\',
+                                'C:\\Users\\Desktop\\',
+                                'C:\\Users\\Downloads\\',
+                                'D:\\Documents\\',
+                                'C:\\Users\\OneDrive\\Documents\\'
+                            ];
+                            
+                            const pathSuggestions = commonPaths.map(path => `${path}${file.name}`).join('\n');
+                            const promptMessage = `File "${file.name}" selected.\n\nDue to browser security, the full path cannot be automatically detected.\n\nPlease enter the full path to this file.\n\nCommon locations:\n${pathSuggestions}\n\nOr enter your custom path:`;
+                            
+                            const fullPath = prompt(promptMessage, file.name);
+                            if (fullPath && fullPath.trim()) {
+                                filePath = fullPath.trim();
+                            } else {
+                                filePath = file.name; // Fallback to just filename
+                            }
+                        }
+                        
+                        // Set the value in the input field
+                        targetInput.value = filePath;
+                        
+                        // Show success feedback
+                        const browseBtn = targetInput.parentElement.querySelector('.browse-btn');
+                        if (browseBtn) {
+                            const originalText = browseBtn.textContent;
+                            browseBtn.textContent = '✓ Selected';
+                            browseBtn.classList.remove('btn-outline-primary');
+                            browseBtn.classList.add('btn-success');
+                            setTimeout(() => {
+                                browseBtn.textContent = originalText;
+                                browseBtn.classList.remove('btn-success');
+                                browseBtn.classList.add('btn-outline-primary');
+                            }, 2000);
+                        }
+                        
+                        // Show a helpful message about the file path
+                        console.log('File selected (web mode):', file.name);
+                        console.log('File path stored:', filePath);
+                        
+                        // Show a user-friendly alert
+                        setTimeout(() => {
+                            if (filePath !== file.name) {
+                                alert(`File "${file.name}" selected.\n\nFull path has been stored: ${filePath}\n\nNote: Due to browser security restrictions, full paths must be entered manually.`);
+                            } else {
+                                alert(`File "${file.name}" selected.\n\nOnly filename stored due to browser security restrictions.\n\nYou can manually edit the field to add the full path if needed.`);
+                            }
+                        }, 100);
+                    }
+                }
+            }
+        });
+    }
+    // Today button functionality
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('today-btn')) {
+            const targetId = e.target.getAttribute('data-target');
+            const targetInput = document.getElementById(targetId);
+            if (targetInput) {
+                const today = new Date();
+                const year = today.getFullYear();
+                const month = String(today.getMonth() + 1).padStart(2, '0');
+                const day = String(today.getDate()).padStart(2, '0');
+                const todayString = `${year}-${month}-${day}`;
+                targetInput.value = todayString;
+            }
+        }
+    });
+    
+    // Auto-fill button functionality
+    document.addEventListener('click', function(e) {
+        if (e.target.classList.contains('auto-fill-btn')) {
+            const targetId = e.target.getAttribute('data-target');
+            const sourceId = e.target.getAttribute('data-source');
+            const targetInput = document.getElementById(targetId);
+            const sourceInput = document.getElementById(sourceId);
+            
+            if (targetInput && sourceInput && sourceInput.value.trim()) {
+                const sampleId = sourceInput.value.trim();
+                
+                // Show loading state
+                e.target.textContent = 'Loading...';
+                e.target.disabled = true;
+                
+                fetch(`/api/sample/${sampleId}/batch`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.success) {
+                            targetInput.value = data.batch_id;
+                            e.target.textContent = '✓ Filled';
+                            e.target.classList.remove('btn-outline-info');
+                            e.target.classList.add('btn-success');
+                            setTimeout(() => {
+                                e.target.textContent = 'Auto Fill Batch';
+                                e.target.classList.remove('btn-success');
+                                e.target.classList.add('btn-outline-info');
+                                e.target.disabled = false;
+                            }, 2000);
+                        } else {
+                            e.target.textContent = 'Not Found';
+                            e.target.classList.remove('btn-outline-info');
+                            e.target.classList.add('btn-danger');
+                            setTimeout(() => {
+                                e.target.textContent = 'Auto Fill Batch';
+                                e.target.classList.remove('btn-danger');
+                                e.target.classList.add('btn-outline-info');
+                                e.target.disabled = false;
+                            }, 2000);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching batch ID:', error);
+                        e.target.textContent = 'Error';
+                        e.target.classList.remove('btn-outline-info');
+                        e.target.classList.add('btn-danger');
+                        setTimeout(() => {
+                            e.target.textContent = 'Auto Fill Batch';
+                            e.target.classList.remove('btn-danger');
+                            e.target.classList.add('btn-outline-info');
+                            e.target.disabled = false;
+                        }, 2000);
+                    });
+            } else {
+                alert('Please enter a Sample ID first');
+            }
+        }
+    });
+}
+
+// --- Open File Location button functionality ---
+document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('open-location-btn') || e.target.closest('.open-location-btn')) {
+        e.preventDefault();
+        const btn = e.target.classList.contains('open-location-btn') ? e.target : e.target.closest('.open-location-btn');
+        const filePath = btn.getAttribute('data-path');
+        
+        if (filePath) {
+            // Check if we're in desktop mode (PyWebView)
+            const isDesktopMode = (typeof pywebview !== 'undefined' && pywebview.api && pywebview.api.open_file_location);
+            
+            if (isDesktopMode) {
+                // In desktop mode, open the file location
+                console.log('Calling open_file_location with path:', filePath);
+                pywebview.api.open_file_location(filePath).then(function(result) {
+                    console.log('open_file_location result:', result);
+                    if (result.success) {
+                        showCenterAlert(result.message || 'File location opened successfully!', 'success');
+                    } else {
+                        showCenterAlert(`Failed to open file location: ${result.error}\\n\\nFile path: ${filePath}`, 'warning');
+                    }
+                }).catch(function(error) {
+                    console.error('Error in open_file_location promise:', error);
+                    showCenterAlert(`Error opening file location: ${error}\\n\\nFile path: ${filePath}`, 'warning');
+                });
+            } else {
+                // In web mode, show file path with instructions
+                showCenterAlert(`File path: ${filePath}\\n\\nTo open this location, copy the path above and paste it into your File Explorer address bar.`, 'info');
+            }
+        }
+    }
+});
+
+// --- Open File button functionality ---
+document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('open-file-btn') || e.target.closest('.open-file-btn')) {
+        e.preventDefault();
+        const btn = e.target.classList.contains('open-file-btn') ? e.target : e.target.closest('.open-file-btn');
+        const filePath = btn.getAttribute('data-path');
+        
+        if (filePath) {
+            // Check if we're in desktop mode (PyWebView)
+            const isDesktopMode = (typeof pywebview !== 'undefined' && pywebview.api && pywebview.api.open_file);
+            
+            if (isDesktopMode) {
+                // In desktop mode, try to open the file directly
+                pywebview.api.open_file(filePath).then(function(result) {
+                    if (result.success) {
+                        showCenterAlert(result.message || 'File opened successfully!', 'success');
+                    } else {
+                        showCenterAlert(`Failed to open file: ${result.error}\\n\\nFile path: ${filePath}`, 'warning');
+                    }
+                }).catch(function(error) {
+                    console.error('Error opening file:', error);
+                    showCenterAlert(`Error opening file: ${error}\\n\\nFile path: ${filePath}`, 'warning');
+                });
+            } else {
+                // In web mode, we can't directly open files due to security restrictions
+                showCenterAlert(`File path: ${filePath}\\n\\nDue to browser security restrictions, files cannot be opened directly from the web interface. Please use File Explorer to navigate to this location.`, 'info');
+            }
+        }
+    }
+});
+
+
+
+// --- Delete row button functionality (single event listener) ---
+document.addEventListener('click', function(e) {
+    if (e.target.classList.contains('delete-row-btn') || e.target.closest('.delete-row-btn')) {
+        const btn = e.target.classList.contains('delete-row-btn') ? e.target : e.target.closest('.delete-row-btn');
+        const table = btn.getAttribute('data-table');
+        const rowId = btn.getAttribute('data-id');
+        
+        if (confirm('Are you sure you want to delete this row? This action cannot be undone.')) {
+            // Close the modal first
+            const modal = bootstrap.Modal.getInstance(document.getElementById('editModal'));
+            if (modal) {
+                modal.hide();
+            }
+            
+            // Perform the delete
+            fetch(`/delete/${table}/${rowId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    // Refresh the table
+                    if (typeof fetchAndUpdateTable === 'function') {
+                        fetchAndUpdateTable();
+                    } else {
+                        // Fallback: reload the page
+                        window.location.reload();
+                    }
+                    // Show alert using parent window's function or fallback
+                    if (typeof showCenterAlert === 'function') {
+                        showCenterAlert(data.message || 'Row deleted successfully!', 'success');
+                    } else {
+                        alert(data.message || 'Row deleted successfully!');
+                    }
+                } else {
+                    throw new Error(data.error || 'Delete failed');
+                }
+            })
+            .catch(error => {
+                console.error('Delete error:', error);
+                // Show alert using parent window's function or fallback
+                if (typeof showCenterAlert === 'function') {
+                    showCenterAlert('Error deleting row: ' + error.message, 'danger');
+                } else {
+                    alert('Error deleting row: ' + error.message);
+                }
+            });
+        }
+    }
+});
+
+// --- Search Form Handler ---
+document.addEventListener('DOMContentLoaded', function() {
+    const searchForm = document.querySelector('form[method="get"]');
+    const searchInput = document.querySelector('input[name="q"]');
+    
+    if (searchForm) {
+        searchForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            fetchAndUpdateTable();
+        });
+    }
+    
+    // Also trigger search on input change (with debounce)
+    let searchTimeout;
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                fetchAndUpdateTable();
+            }, 500); // 500ms debounce
+        });
+    }
+    
+    // Clear search functionality
+    const clearSearchBtn = document.getElementById('clear-search');
+    if (clearSearchBtn) {
+        clearSearchBtn.addEventListener('click', function() {
+            if (searchInput) {
+                searchInput.value = '';
+                fetchAndUpdateTable();
+            }
+        });
+    }
+});
+
+// --- Start periodic sync and timer ---
+window.addEventListener('DOMContentLoaded', function() {
+    setInterval(updateSyncTimer, 1000);
+    periodicSyncId = setInterval(fetchAndUpdateTable, syncInterval * 1000);
+    fetchAndUpdateTable();
+    attachButtonHandlers();
+});
+// --- Table Sorting ---
+const table = document.getElementById('data-table');
+const thead = table ? table.querySelector('thead') : null;
+const tbody = table ? table.querySelector('tbody') : null;
+let sortCol = null;
+let sortDir = 1; // 1 = asc, -1 = desc
+function sortTable(colName) {
+    if (!tbody) return;
+    
+    // Find the column index by matching the column name
+    const headers = Array.from(thead.querySelectorAll('th.sortable'));
+    const colIdx = headers.findIndex(th => th.getAttribute('data-col') === colName);
+    
+    if (colIdx === -1) return; // Column not found
+    
+    // Only sort rows with enough columns (skip debug/short rows)
+    const rows = Array.from(tbody.querySelectorAll('tr')).filter(tr => tr.children.length > colIdx);
+    rows.sort((a, b) => {
+        const aCell = a.querySelector(`td[data-col="${colName}"]`);
+        const bCell = b.querySelector(`td[data-col="${colName}"]`);
+        
+        if (!aCell || !bCell) return 0;
+        
+        const aText = aCell.textContent.trim();
+        const bText = bCell.textContent.trim();
+        
+        // Try numeric sort, fallback to case-insensitive string
+        const aNum = parseFloat(aText);
+        const bNum = parseFloat(bText);
+        if (!isNaN(aNum) && !isNaN(bNum)) {
+            return (aNum - bNum) * sortDir;
+        }
+        return aText.localeCompare(bText, undefined, {numeric: true, sensitivity: 'base'}) * sortDir;
+    });
+    rows.forEach(row => tbody.appendChild(row));
+    
+    // Update arrows
+    if (thead) {
+        thead.querySelectorAll('.sort-arrow').forEach(span => span.textContent = '');
+        const arrow = headers[colIdx].querySelector('.sort-arrow');
+        if (arrow) arrow.textContent = sortDir === 1 ? '▲' : '▼';
+    }
+}
+if (thead) {
+    thead.querySelectorAll('th.sortable').forEach((th) => {
+        th.style.cursor = 'pointer';
+        th.addEventListener('click', function() {
+            const colName = this.getAttribute('data-col');
+            if (sortCol === colName) {
+                sortDir *= -1;
+            } else {
+                sortCol = colName;
+                sortDir = 1;
+            }
+            sortTable(colName);
+        });
+    });
+}
+window.addEventListener('DOMContentLoaded', function() {
+    if (thead) {
+        // Default sort on primary key column if present, else first column
+        const headers = Array.from(thead.querySelectorAll('th.sortable'));
+        let defaultCol = headers.find(th => th.getAttribute('data-col').endsWith('_id'));
+        if (!defaultCol) defaultCol = headers[0];
+        
+        if (defaultCol) {
+            sortCol = defaultCol.getAttribute('data-col');
+            sortDir = 1;
+            sortTable(sortCol);
+        }
+    }
+    lastSyncSeconds = 0;
+    updateSyncTimer();
+    
+    // Handle row highlighting for foreign key navigation
+    // Add a small delay to ensure the table is fully rendered
+    setTimeout(() => {
+        highlightTargetRow();
+    }, 100);
+});
+
+// --- Foreign Key Navigation and Highlighting ---
+function highlightTargetRow() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const highlightParam = urlParams.get('highlight');
+    
+    if (highlightParam) {
+        const [highlightCol, highlightValue] = highlightParam.split(':');
+        if (highlightCol && highlightValue) {
+            
+            // Find the column by matching the column name
+            const headers = Array.from(document.querySelectorAll('#data-table thead th.sortable'));
+            let targetCol = null;
+            
+            // First try exact match with column name
+            targetCol = headers.find(th => th.getAttribute('data-col') === highlightCol);
+            
+            // If no exact match, try matching with prettified column name
+            if (!targetCol) {
+                targetCol = headers.find(th => {
+                    const headerText = th.textContent.trim().replace(/[▲▼]/g, '').trim();
+                    const prettifiedHighlightCol = highlightCol.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    return headerText.toLowerCase() === prettifiedHighlightCol.toLowerCase();
+                });
+            }
+            
+            // If still no match, try partial match
+            if (!targetCol) {
+                targetCol = headers.find(th => {
+                    const headerText = th.textContent.trim().replace(/[▲▼]/g, '').trim();
+                    return headerText.toLowerCase().includes(highlightCol.toLowerCase()) ||
+                           highlightCol.toLowerCase().includes(headerText.toLowerCase());
+                });
+            }
+            
+            if (targetCol) {
+                const colName = targetCol.getAttribute('data-col');
+                
+                // Find and highlight the target row
+                const rows = document.querySelectorAll('#data-table tbody tr');
+                let found = false;
+                
+                rows.forEach(row => {
+                    const cell = row.querySelector(`td[data-col="${colName}"]`);
+                    if (cell) {
+                        let cellValue = '';
+                        
+                        // Check if it's a link (foreign key)
+                        const link = cell.querySelector('a');
+                        if (link) {
+                            cellValue = link.textContent.trim();
+                        } else {
+                            cellValue = cell.textContent.trim();
+                        }
+                        
+                        if (cellValue === highlightValue) {
+                            row.classList.add('highlighted-row');
+                            found = true;
+                            
+                            // Scroll to the highlighted row
+                            row.scrollIntoView({ 
+                                behavior: 'smooth', 
+                                block: 'center' 
+                            });
+                            
+                            // Remove highlight after animation
+                            setTimeout(() => {
+                                row.classList.remove('highlighted-row');
+                            }, 3000);
+                        }
+                    }
+                });
+                
+                if (!found) {
+                }
+            } else {
+            }
+        }
+    }
+}
+
+
+</script>
+{% endblock %}

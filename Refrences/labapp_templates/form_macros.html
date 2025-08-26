@@ -1,0 +1,79 @@
+{% macro form_field(col, dtype, is_nullable, value='', readonly=False) %}
+<div class="mb-3">
+    <label for="{{ col }}" class="form-label">
+        {{ col|capitalize }} ({{ dtype }})
+        {% if is_nullable == 'NO' %}<span style="color:red">*</span>{% endif %}
+    </label>
+    <input type="text" class="form-control" id="{{ col }}" name="{{ col }}" value="{{ value }}" {% if readonly %}readonly{% endif %} {% if is_nullable == 'NO' %}required{% endif %}>
+</div>
+{% endmacro %}
+
+{% macro action_buttons(table_name, row_id, can_write=True, colnames=[], row_data=[]) %}
+    {% if can_write %}
+        <div class="dropdown">
+            <button class="btn btn-sm btn-outline-primary dropdown-toggle" type="button" id="actionDropdown{{ row_id }}" data-bs-toggle="dropdown" aria-expanded="false">
+                <i class="fas fa-ellipsis-h"></i>
+            </button>
+            <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="actionDropdown{{ row_id }}">
+                <li><a class="dropdown-item edit-btn" href="#" data-table="{{ table_name }}" data-id="{{ row_id }}">
+                    <i class="fas fa-edit me-2"></i>Edit
+                </a></li>
+                <li><a class="dropdown-item delete-row-btn" href="#" data-table="{{ table_name }}" data-id="{{ row_id }}">
+                    <i class="fas fa-trash me-2"></i>Delete
+                </a></li>
+                {% if 'file_location' in colnames %}
+                    {% set file_location_index = colnames.index('file_location') %}
+                    {% if row_data and file_location_index < row_data|length and row_data[file_location_index] %}
+                        <li><hr class="dropdown-divider"></li>
+                        <li><a class="dropdown-item open-location-btn" href="#" data-path="{{ row_data[file_location_index] }}">
+                            <i class="fas fa-folder-open me-2"></i>Open File Location
+                        </a></li>
+                        <li><a class="dropdown-item open-file-btn" href="#" data-path="{{ row_data[file_location_index] }}">
+                            <i class="fas fa-external-link-alt me-2"></i>Open File
+                        </a></li>
+                    {% endif %}
+                {% endif %}
+            </ul>
+        </div>
+    {% endif %}
+{% endmacro %}
+
+{% macro card(title, content) %}
+<div class="card">
+    <div class="card-body">
+        <h2 class="card-title mb-4">{{ title }}</h2>
+        {{ content }}
+    </div>
+</div>
+{% endmacro %}
+
+{# Macro for foreign key cell: value, fk_table, highlight_id_param_name #}
+{% macro fk_cell(value, target_table, highlight_col, request=None) %}
+    {% if value %}
+        <a href="/table/{{ target_table }}?highlight={{ highlight_col }}:{{ value }}" 
+           class="fk-link" 
+           data-target-table="{{ target_table }}" 
+           data-highlight-col="{{ highlight_col }}" 
+           data-highlight-value="{{ value }}"
+           title="Click to view in {{ target_table|title }} table">
+            {{ value }}
+        </a>
+    {% else %}
+        <span class="text-muted">-</span>
+    {% endif %}
+{% endmacro %}
+
+{% macro clickable_fk_cell(value, target_table, highlight_col, request=None) %}
+    {% if value %}
+        <a href="/table/{{ target_table }}?highlight={{ highlight_col }}:{{ value }}" 
+           class="fk-link text-primary" 
+           data-target-table="{{ target_table }}" 
+           data-highlight-col="{{ highlight_col }}" 
+           data-highlight-value="{{ value }}"
+           title="Click to view in {{ target_table|title }} table">
+            {{ value }}
+        </a>
+    {% else %}
+        <span class="text-muted">-</span>
+    {% endif %}
+{% endmacro %} 

@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Inventory Management{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Dashboard</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary">
+                <i class="fas fa-download"></i> Export
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="row mb-4">
+    <div class="col-md-3">
+        <div class="card text-white bg-primary">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Products</h5>
+                        <h2>{{ total_products }}</h2>
+                    </div>
+                    <i class="fas fa-box display-4"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-success">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Warehouses</h5>
+                        <h2>{{ total_warehouses }}</h2>
+                    </div>
+                    <i class="fas fa-warehouse display-4"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-warning">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Low Stock</h5>
+                        <h2>{{ low_stock_count }}</h2>
+                    </div>
+                    <i class="fas fa-exclamation-triangle display-4"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-3">
+        <div class="card text-white bg-info">
+            <div class="card-body">
+                <div class="d-flex justify-content-between">
+                    <div>
+                        <h5 class="card-title">Stock Items</h5>
+                        <h2>{{ stock_data|length if stock_data else 0 }}</h2>
+                    </div>
+                    <i class="fas fa-boxes display-4"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Recent Stock Activity -->
+<div class="row">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-clock"></i> Current Stock Overview</h5>
+            </div>
+            <div class="card-body">
+                {% if stock_data %}
+                <div class="table-responsive">
+                    <table class="table table-striped">
+                        <thead>
+                            <tr>
+                                <th>Product</th>
+                                <th>SKU</th>
+                                <th>Location</th>
+                                <th>Available</th>
+                                <th>Reserved</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in stock_data[:10] %}
+                            <tr>
+                                <td>
+                                    {% if item.products %}
+                                        {{ item.products.name }}
+                                    {% else %}
+                                        Unknown Product
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.products %}
+                                        <code>{{ item.products.sku }}</code>
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </td>
+                                <td>
+                                    {% if item.locations and item.locations.warehouses %}
+                                        {{ item.locations.warehouses.name }} - {{ item.locations.aisle }}{{ item.locations.bin }}
+                                    {% else %}
+                                        Unknown Location
+                                    {% endif %}
+                                </td>
+                                <td>{{ item.qty_available }}</td>
+                                <td>{{ item.qty_reserved }}</td>
+                                <td>
+                                    {% if item.qty_available == 0 %}
+                                        <span class="badge bg-danger">Out of Stock</span>
+                                    {% elif item.qty_available < 10 %}
+                                        <span class="badge bg-warning">Low Stock</span>
+                                    {% else %}
+                                        <span class="badge bg-success">In Stock</span>
+                                    {% endif %}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                
+                {% if stock_data|length > 10 %}
+                <div class="text-center mt-3">
+                    <a href="{{ url_for('stock') }}" class="btn btn-outline-primary">
+                        View All Stock Items <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+                {% endif %}
+                
+                {% else %}
+                <div class="text-center py-4">
+                    <i class="fas fa-inbox display-1 text-muted"></i>
+                    <h5 class="text-muted mt-3">No stock data available</h5>
+                    <p class="text-muted">Add some products and stock items to get started.</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="row mt-4">
+    <div class="col-md-12">
+        <div class="card">
+            <div class="card-header">
+                <h5><i class="fas fa-bolt"></i> Quick Actions</h5>
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-md-3 mb-2">
+                        <a href="{{ url_for('products') }}" class="btn btn-outline-primary w-100">
+                            <i class="fas fa-plus-circle"></i> Manage Products
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <a href="{{ url_for('stock') }}" class="btn btn-outline-success w-100">
+                            <i class="fas fa-boxes"></i> View Stock
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <a href="{{ url_for('warehouses') }}" class="btn btn-outline-info w-100">
+                            <i class="fas fa-warehouse"></i> Manage Warehouses
+                        </a>
+                    </div>
+                    <div class="col-md-3 mb-2">
+                        <button class="btn btn-outline-warning w-100" disabled>
+                            <i class="fas fa-shopping-cart"></i> Orders (Coming Soon)
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
