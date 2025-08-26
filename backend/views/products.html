@@ -238,16 +238,17 @@
                     <button type="button" class="btn btn-outline-secondary dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
                         <i class="fas fa-columns me-1"></i>Columns
                     </button>
-                    <ul class="dropdown-menu" id="column-visibility-menu">
-                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="sku"> SKU</label></li>
-                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="name"> Name</label></li>
-                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="description"> Description</label></li>
-                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="dimensions"> Dimensions</label></li>
-                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="weight"> Weight</label></li>
-                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="barcode"> Barcode</label></li>
-                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="batch_tracking"> Batch Tracking</label></li>
-                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="created"> Created</label></li>
-                    </ul>
+                                         <ul class="dropdown-menu" id="column-visibility-menu">
+                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="sku"> SKU</label></li>
+                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="name"> Name</label></li>
+                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="description"> Description</label></li>
+                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="dimensions"> Dimensions</label></li>
+                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="weight"> Weight</label></li>
+                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="barcode"> Barcode</label></li>
+                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="total_stock"> Total Stock</label></li>
+                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="batch_tracking"> Batch Tracking</label></li>
+                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="created"> Created</label></li>
+                     </ul>
                 </div>
                 <button type="button" class="btn btn-outline-secondary btn-sm ms-1" id="reset-table-settings">
                     <i class="fas fa-undo me-1"></i>Reset
@@ -539,12 +540,12 @@ document.addEventListener('DOMContentLoaded', function() {
         return cell.textContent.trim();
     }
     
-    // Column visibility functions
-    function toggleColumnVisibility(column, visible) {
-        const columnIndex = {
-            'sku': 1, 'name': 2, 'description': 3, 'dimensions': 4, 
-            'weight': 5, 'barcode': 6, 'batch_tracking': 7, 'created': 8
-        };
+         // Column visibility functions
+     function toggleColumnVisibility(column, visible) {
+         const columnIndex = {
+             'sku': 1, 'name': 2, 'description': 3, 'dimensions': 4, 
+             'weight': 5, 'barcode': 6, 'total_stock': 7, 'batch_tracking': 8, 'created': 9
+         };
         
         const index = columnIndex[column];
         if (index === undefined) return;
@@ -794,27 +795,28 @@ document.addEventListener('DOMContentLoaded', function() {
     function exportSelectedToCSV(selectedCheckboxes) {
         const selectedRows = Array.from(selectedCheckboxes).map(cb => cb.closest('.product-row')).filter(row => row);
         
-        // CSV Headers
-        const headers = ['SKU', 'Name', 'Description', 'Dimensions', 'Weight (kg)', 'Barcode', 'Batch Tracking', 'Created Date'];
-        let csvContent = headers.join(',') + '\n';
+                 // CSV Headers
+         const headers = ['SKU', 'Name', 'Description', 'Dimensions', 'Weight (kg)', 'Barcode', 'Total Stock', 'Batch Tracking', 'Created Date'];
+         let csvContent = headers.join(',') + '\n';
 
-        // CSV Data
-        selectedRows.forEach(row => {
-            const cells = row.querySelectorAll('td');
-            if (cells.length >= 9) { // Account for checkbox column and new batch tracking column
-                const rowData = [
-                    `"${cells[1].textContent.trim()}"`,  // SKU (skip checkbox column)
-                    `"${cells[2].textContent.trim()}"`,  // Name
-                    `"${cells[3].textContent.trim()}"`,  // Description
-                    `"${cells[4].textContent.trim()}"`,  // Dimensions
-                    `"${cells[5].textContent.trim()}"`,  // Weight
-                    `"${cells[6].textContent.trim()}"`,  // Barcode
-                    `"${cells[7].textContent.trim()}"`,  // Batch Tracking
-                    `"${cells[8].textContent.trim()}"`   // Created
-                ];
-                csvContent += rowData.join(',') + '\n';
-            }
-        });
+         // CSV Data
+         selectedRows.forEach(row => {
+             const cells = row.querySelectorAll('td');
+             if (cells.length >= 10) { // Account for checkbox column and new total stock column
+                 const rowData = [
+                     `"${cells[1].textContent.trim()}"`,  // SKU (skip checkbox column)
+                     `"${cells[2].textContent.trim()}"`,  // Name
+                     `"${cells[3].textContent.trim()}"`,  // Description
+                     `"${cells[4].textContent.trim()}"`,  // Dimensions
+                     `"${cells[5].textContent.trim()}"`,  // Weight
+                     `"${cells[6].textContent.trim()}"`,  // Barcode
+                     `"${cells[7].textContent.trim()}"`,  // Total Stock
+                     `"${cells[8].textContent.trim()}"`,  // Batch Tracking
+                     `"${cells[9].textContent.trim()}"`   // Created
+                 ];
+                 csvContent += rowData.join(',') + '\n';
+             }
+         });
 
         // Download CSV
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1024,27 +1026,28 @@ document.addEventListener('DOMContentLoaded', function() {
             return;
         }
 
-        // CSV Headers
-        const headers = ['SKU', 'Name', 'Description', 'Dimensions', 'Weight (kg)', 'Barcode', 'Batch Tracking', 'Created Date'];
-        let csvContent = headers.join(',') + '\n';
+                 // CSV Headers
+         const headers = ['SKU', 'Name', 'Description', 'Dimensions', 'Weight (kg)', 'Barcode', 'Total Stock', 'Batch Tracking', 'Created Date'];
+         let csvContent = headers.join(',') + '\n';
 
-        // CSV Data
-        visibleRows.forEach(row => {
-            const cells = row.querySelectorAll('td');
-            if (cells.length >= 8) {
-                const rowData = [
-                    `"${cells[1].textContent.trim()}"`,  // SKU (skip checkbox column)
-                    `"${cells[2].textContent.trim()}"`,  // Name
-                    `"${cells[3].textContent.trim()}"`,  // Description
-                    `"${cells[4].textContent.trim()}"`,  // Dimensions
-                    `"${cells[5].textContent.trim()}"`,  // Weight
-                    `"${cells[6].textContent.trim()}"`,  // Barcode
-                    `"${cells[7].textContent.trim()}"`,  // Batch Tracking
-                    `"${cells[8].textContent.trim()}"`   // Created
-                ];
-                csvContent += rowData.join(',') + '\n';
-            }
-        });
+         // CSV Data
+         visibleRows.forEach(row => {
+             const cells = row.querySelectorAll('td');
+             if (cells.length >= 10) {
+                 const rowData = [
+                     `"${cells[1].textContent.trim()}"`,  // SKU (skip checkbox column)
+                     `"${cells[2].textContent.trim()}"`,  // Name
+                     `"${cells[3].textContent.trim()}"`,  // Description
+                     `"${cells[4].textContent.trim()}"`,  // Dimensions
+                     `"${cells[5].textContent.trim()}"`,  // Weight
+                     `"${cells[6].textContent.trim()}"`,  // Barcode
+                     `"${cells[7].textContent.trim()}"`,  // Total Stock
+                     `"${cells[8].textContent.trim()}"`,  // Batch Tracking
+                     `"${cells[9].textContent.trim()}"`   // Created
+                 ];
+                 csvContent += rowData.join(',') + '\n';
+             }
+         });
 
         // Download CSV
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
