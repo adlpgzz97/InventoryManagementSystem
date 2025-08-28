@@ -43,16 +43,16 @@ backend/
 
 ## Phase 2: Models Layer ⏳ PENDING
 
-### 2.1 User Model
-- [ ] Create `models/user.py`
-- [ ] Extract User class
-- [ ] Add authentication methods
-- [ ] Add role management
-- [ ] Add user loading logic
+### 2.1 User Model ✅ COMPLETED
+- [x] Create `models/user.py`
+- [x] Extract User class
+- [x] Add authentication methods
+- [x] Add role management
+- [x] Add user loading logic
 
-### 2.2 Business Models
-- [ ] Create `models/product.py`
-- [ ] Create `models/stock.py`
+### 2.2 Business Models ✅ PARTIALLY COMPLETED
+- [x] Create `models/product.py`
+- [x] Create `models/stock.py`
 - [ ] Create `models/warehouse.py`
 - [ ] Create `models/supplier.py`
 - [ ] Create `models/transaction.py`
