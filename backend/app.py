@@ -18,68 +18,8 @@ from datetime import datetime
 app = Flask(__name__, template_folder='views')
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 
-# Custom Jinja2 filter to group locations into ranges
-@app.template_filter('group_locations')
-def group_locations(locations):
-    """
-    Group consecutive locations into ranges.
-    Example: [A1, A2, A3, A4, A5, B1, B2, B3, B4, C1, C2] 
-    becomes: ['A1-A5', 'B1-B4', 'C1-C2']
-    """
-    if not locations:
-        return []
-    
-    # Sort locations by aisle and bin
-    sorted_locations = sorted(locations, key=lambda x: (x['aisle'], int(x['bin']) if x['bin'].isdigit() else x['bin']))
-    
-    ranges = []
-    current_range = None
-    
-    for location in sorted_locations:
-        aisle = location['aisle']
-        bin_num = location['bin']
-        
-        if current_range is None:
-            # Start new range
-            current_range = {'aisle': aisle, 'start': bin_num, 'end': bin_num}
-        elif current_range['aisle'] == aisle:
-            # Same aisle, check if consecutive
-            try:
-                current_bin = int(bin_num)
-                end_bin = int(current_range['end'])
-                if current_bin == end_bin + 1:
-                    # Consecutive, extend range
-                    current_range['end'] = bin_num
-                else:
-                    # Not consecutive, finish current range and start new one
-                    if current_range['start'] == current_range['end']:
-                        ranges.append(f"{current_range['aisle']}{current_range['start']}")
-                    else:
-                        ranges.append(f"{current_range['aisle']}{current_range['start']}-{current_range['end']}")
-                    current_range = {'aisle': aisle, 'start': bin_num, 'end': bin_num}
-            except ValueError:
-                # Non-numeric bin, treat as separate
-                if current_range['start'] == current_range['end']:
-                    ranges.append(f"{current_range['aisle']}{current_range['start']}")
-                else:
-                    ranges.append(f"{current_range['aisle']}{current_range['start']}-{current_range['end']}")
-                current_range = {'aisle': aisle, 'start': bin_num, 'end': bin_num}
-        else:
-            # Different aisle, finish current range and start new one
-            if current_range['start'] == current_range['end']:
-                ranges.append(f"{current_range['aisle']}{current_range['start']}")
-            else:
-                ranges.append(f"{current_range['aisle']}{current_range['start']}-{current_range['end']}")
-            current_range = {'aisle': aisle, 'start': bin_num, 'end': bin_num}
-    
-    # Add the last range
-    if current_range:
-        if current_range['start'] == current_range['end']:
-            ranges.append(f"{current_range['aisle']}{current_range['start']}")
-        else:
-            ranges.append(f"{current_range['aisle']}{current_range['start']}-{current_range['end']}")
-    
-    return ranges
+
+
 
 # Database configuration
 DB_CONFIG = {
@@ -748,7 +688,7 @@ def reports():
                 'product_name': item['products'].get('name', 'Unknown') if item.get('products') else 'Unknown',
                 'sku': item['products'].get('sku', 'N/A') if item.get('products') else 'N/A',
                 'warehouse_name': item['locations']['warehouses'].get('name', 'Unknown') if item.get('locations') and item['locations'].get('warehouses') else 'Unknown',
-                'location': f"{item['locations'].get('aisle', '')}{item['locations'].get('bin', '')}" if item.get('locations') else 'Unknown',
+                'location': item['locations'].get('full_code', 'Unknown') if item.get('locations') else 'Unknown',
                 'on_hand': qty_available,
                 'qty_reserved': item.get('qty_reserved', 0),
                 'batch_id': item.get('batch_id'),
@@ -1200,7 +1140,7 @@ def api_product_by_barcode(barcode):
 def api_stock_by_product(product_id):
     """API endpoint for stock by product"""
     try:
-        stock_data = postgrest_request(f'stock_items?product_id=eq.{product_id}&select=*,locations(aisle,bin,warehouses(name))')
+        stock_data = postgrest_request(f'stock_items?product_id=eq.{product_id}&select=*,locations(full_code,warehouses(name))')
         return jsonify(stock_data or [])
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1245,8 +1185,9 @@ def api_warehouse_occupied_locations(warehouse_id):
         cur.execute("""
             SELECT DISTINCT l.id 
             FROM locations l
-            JOIN stock_items si ON l.id = si.location_id
-            WHERE l.warehouse_id = %s AND si.qty_available > 0
+            JOIN bins b ON l.id = b.location_id
+            JOIN stock_items si ON b.id = si.bin_id
+            WHERE l.warehouse_id = %s AND si.on_hand > 0
         """, (warehouse_id,))
         
         occupied_locations = [str(row[0]) for row in cur.fetchall()]
@@ -1755,8 +1696,9 @@ def edit_stock(stock_id):
             
             stock = dict(stock_data)
             
-            # Get products data
-            products_data = postgrest_request('products?select=id,sku,name')
+            # Get products data directly from database
+            cur.execute("SELECT id, sku, name, barcode FROM products ORDER BY name")
+            products_data = cur.fetchall()
             
             # Get bins with location and warehouse information
             cur.execute("""
@@ -1818,23 +1760,23 @@ def edit_warehouse(warehouse_id):
             # Handle form submission
             name = request.form.get('name')
             address = request.form.get('address') or None
-            aisles_data = request.form.get('aisles_data')
             
             # Validate occupied locations before making changes
             conn = get_db_connection()
             cur = conn.cursor()
             
             # Get current locations
-            cur.execute("SELECT id, aisle, bin FROM locations WHERE warehouse_id = %s", (warehouse_id,))
+            cur.execute("SELECT id, full_code FROM locations WHERE warehouse_id = %s", (warehouse_id,))
             current_locations = cur.fetchall()
             current_location_ids = {loc[0] for loc in current_locations}
             
-            # Get occupied locations
+            # Get occupied locations (locations with bins that have stock)
             cur.execute("""
                 SELECT DISTINCT l.id 
                 FROM locations l
-                JOIN stock_items si ON l.id = si.location_id
-                WHERE l.warehouse_id = %s AND si.qty_available > 0
+                JOIN bins b ON l.id = b.location_id
+                JOIN stock_items si ON b.id = si.bin_id
+                WHERE l.warehouse_id = %s AND si.on_hand > 0
             """, (warehouse_id,))
             occupied_location_ids = {row[0] for row in cur.fetchall()}
             
@@ -1864,19 +1806,23 @@ def edit_warehouse(warehouse_id):
                     """, (warehouse_id,))
                     occupied_location_ids = {row[0] for row in cur.fetchall()}
                     
+                    # Get warehouse code for generating full_code
+                    cur.execute("SELECT code FROM warehouses WHERE id = %s", (warehouse_id,))
+                    warehouse_code = cur.fetchone()[0] if cur.fetchone() else 'W'
+                    
                     # Calculate new location codes from hierarchical structure
                     new_location_codes = set()
                     for area_code, area in hierarchical_structure.items():
                         for rack_code, rack in area['racks'].items():
                             for level_code, level in rack['levels'].items():
-                                # Generate full_code: A2F10 (Area2, RackF, Level10)
+                                # Generate full_code: B1A1 (WarehouseB, Area1, RackA, Level1)
                                 # Convert rack_code from R01 format to letter (R01->A, R02->B, etc.)
                                 rack_letter = chr(ord('A') + int(rack_code.replace('R', '')) - 1) if rack_code.startswith('R') else rack_code
                                 # Extract area number from A01 format
                                 area_number = area_code.replace('A', '') if area_code.startswith('A') else area_code
                                 # Extract level number from L1 format
                                 level_number = level_code.replace('L', '') if level_code.startswith('L') else level_code
-                                full_code = f"A{area_number}{rack_letter}{level_number}"
+                                full_code = f"{warehouse_code}{area_number}{rack_letter}{level_number}"
                                 new_location_codes.add(full_code)
                     
                     # Find locations that will be removed
@@ -1917,18 +1863,22 @@ def edit_warehouse(warehouse_id):
                     if removed_location_codes:
                         cur.execute("DELETE FROM locations WHERE full_code = ANY(%s)", (list(removed_location_codes),))
                     
+                    # Get warehouse code for generating full_code
+                    cur.execute("SELECT code FROM warehouses WHERE id = %s", (warehouse_id,))
+                    warehouse_code = cur.fetchone()[0] if cur.fetchone() else 'W'
+                    
                     # Add/update locations based on hierarchical structure
                     for area_code, area in hierarchical_structure.items():
                         for rack_code, rack in area['racks'].items():
                             for level_code, level in rack['levels'].items():
-                                # Generate full_code: A2F10 (Area2, RackF, Level10)
+                                # Generate full_code: B1A1 (WarehouseB, Area1, RackA, Level1)
                                 # Convert rack_code from R01 format to letter (R01->A, R02->B, etc.)
                                 rack_letter = chr(ord('A') + int(rack_code.replace('R', '')) - 1) if rack_code.startswith('R') else rack_code
                                 # Extract area number from A01 format
                                 area_number = area_code.replace('A', '') if area_code.startswith('A') else area_code
                                 # Extract level number from L1 format
                                 level_number = level_code.replace('L', '') if level_code.startswith('L') else level_code
-                                full_code = f"A{area_number}{rack_letter}{level_number}"
+                                full_code = f"{warehouse_code}{area_number}{rack_letter}{level_number}"
                                 
                                 # Check if location already exists
                                 cur.execute("SELECT id FROM locations WHERE full_code = %s AND warehouse_id = %s", 
@@ -1989,9 +1939,68 @@ def edit_warehouse(warehouse_id):
             
             warehouse = dict(warehouse_data)
             
-            # Get locations for this warehouse
-            cur.execute("SELECT * FROM locations WHERE warehouse_id = %s ORDER BY aisle, bin", (warehouse_id,))
+            # Get locations for this warehouse with bin and stock information
+            cur.execute("""
+                SELECT 
+                    l.id, l.full_code, l.warehouse_id,
+                    COUNT(b.id) as bin_count,
+                    COUNT(CASE WHEN si.on_hand > 0 THEN 1 END) as occupied_bins
+                FROM locations l
+                LEFT JOIN bins b ON l.id = b.location_id
+                LEFT JOIN stock_items si ON b.id = si.bin_id
+                WHERE l.warehouse_id = %s 
+                GROUP BY l.id, l.full_code, l.warehouse_id
+                ORDER BY l.full_code
+            """, (warehouse_id,))
             locations = cur.fetchall()
+            
+            # Organize locations hierarchically
+            hierarchical_locations = {}
+            for loc in locations:
+                loc_dict = dict(loc)
+                # Parse the full_code to extract hierarchical components
+                # Expected format: B1A1 (WarehouseB, Area1, RackA, Level1)
+                full_code = loc_dict['full_code'] if loc_dict['full_code'] else ''
+                
+                if len(full_code) >= 4:
+                    # Extract area number (B1A1 -> 1)
+                    area_number = full_code[1] if len(full_code) > 1 and full_code[1].isdigit() else '1'
+                    area_code = f"A{area_number}"
+                    
+                    # Extract rack letter (B1A1 -> A)
+                    rack_letter = full_code[2] if len(full_code) > 2 else 'A'
+                    rack_code = f"R{ord(rack_letter) - ord('A') + 1:02d}"
+                    
+                    # Extract level number (B1A1 -> 1)
+                    level_number = full_code[3:] if len(full_code) > 3 else '1'
+                    level_code = f"L{level_number}"
+                    
+                    # Build hierarchical structure
+                    if area_code not in hierarchical_locations:
+                        hierarchical_locations[area_code] = {
+                            'name': f'Area {area_code}',
+                            'code': area_code,
+                            'racks': {}
+                        }
+                    
+                    if rack_code not in hierarchical_locations[area_code]['racks']:
+                        hierarchical_locations[area_code]['racks'][rack_code] = {
+                            'name': f'Rack {rack_code}',
+                            'code': rack_code,
+                            'levels': {}
+                        }
+                    
+                    if level_code not in hierarchical_locations[area_code]['racks'][rack_code]['levels']:
+                        hierarchical_locations[area_code]['racks'][rack_code]['levels'][level_code] = {
+                            'name': f'Level {level_code}',
+                            'code': level_code,
+                            'location_id': loc_dict['id'],
+                            'full_code': loc_dict['full_code'],
+                            'bin_count': loc_dict['bin_count'] or 0,
+                            'occupied_bins': loc_dict['occupied_bins'] or 0
+                        }
+            
+            warehouse['hierarchical_locations'] = hierarchical_locations
             warehouse['locations'] = [dict(loc) for loc in locations] if locations else []
             
             cur.close()
@@ -2263,12 +2272,14 @@ def add_stock():
         
         else:
             # GET request - show form
-            products_data = postgrest_request('products?select=id,sku,name')
-            
-            # Get bins with location and warehouse information
+            # Get products directly from database instead of PostgREST
             conn = get_db_connection()
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
             
+            cur.execute("SELECT id, sku, name, barcode FROM products ORDER BY name")
+            products_data = cur.fetchall()
+            
+            # Get bins with location and warehouse information
             cur.execute("""
                 SELECT b.id, b.code, l.full_code, w.name as warehouse_name
                 FROM bins b
@@ -3038,7 +3049,7 @@ def api_bin_details(bin_code):
         for row in cur.fetchall():
             stock_items.append({
                 'id': row[0],
-                'qty_available': row[1],
+                'on_hand': row[1],
                 'qty_reserved': row[2],
                 'batch_id': row[3],
                 'expiry_date': row[4].isoformat() if row[4] else None,
@@ -3292,6 +3303,251 @@ def api_available_locations():
         cur.close()
         
         return jsonify({'locations': locations})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/bins/available', methods=['GET'])
+@login_required
+def api_available_bins():
+    """API endpoint to get all available bins for move operations"""
+    try:
+        cur = get_db_connection().cursor()
+        
+        # Get all bins with their location and warehouse information
+        cur.execute("""
+            SELECT 
+                b.id,
+                b.code,
+                l.full_code as location_code,
+                w.name as warehouse_name,
+                w.code as warehouse_code
+            FROM bins b
+            LEFT JOIN locations l ON b.location_id = l.id
+            LEFT JOIN warehouses w ON l.warehouse_id = w.id
+            ORDER BY b.code
+        """)
+        
+        bins = []
+        for row in cur.fetchall():
+            bins.append({
+                'id': row[0],
+                'code': row[1],
+                'location_code': row[2] or 'Not assigned',
+                'warehouse_name': row[3] or 'Not assigned',
+                'warehouse_code': row[4] or 'Not assigned'
+            })
+        
+        cur.close()
+        
+        return jsonify({
+            'success': True,
+            'bins': bins
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/scanner/move-stock', methods=['POST'])
+@login_required
+def api_move_stock():
+    """API endpoint to move stock between bins"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['stock_item_id', 'destination_bin_id', 'quantity']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        stock_item_id = data['stock_item_id']
+        destination_bin_id = data['destination_bin_id']
+        quantity = data['quantity']
+        notes = data.get('notes', '')
+        
+        # Validate quantity
+        if not isinstance(quantity, (int, float)) or quantity <= 0:
+            return jsonify({'error': 'Quantity must be a positive number'}), 400
+        
+        cur = get_db_connection().cursor()
+        
+        # Get source stock item details
+        cur.execute("""
+            SELECT si.on_hand, si.qty_reserved, si.bin_id, p.name as product_name, p.sku,
+                   b.code as source_bin_code, l.full_code as source_location_code, w.name as source_warehouse_name
+            FROM stock_items si
+            JOIN products p ON si.product_id = p.id
+            JOIN bins b ON si.bin_id = b.id
+            LEFT JOIN locations l ON b.location_id = l.id
+            LEFT JOIN warehouses w ON l.warehouse_id = w.id
+            WHERE si.id = %s
+        """, (stock_item_id,))
+        
+        source_result = cur.fetchone()
+        if not source_result:
+            return jsonify({'error': 'Source stock item not found'}), 404
+        
+        source_available, source_reserved, source_bin_id, product_name, sku, source_bin_code, source_location_code, source_warehouse_name = source_result
+        
+        # Check if there's enough available stock
+        if source_available < quantity:
+            return jsonify({'error': f'Insufficient available stock. Available: {source_available}, Requested: {quantity}'}), 400
+        
+        # Get destination bin details
+        cur.execute("""
+            SELECT b.code as dest_bin_code, l.full_code as dest_location_code, w.name as dest_warehouse_name
+            FROM bins b
+            LEFT JOIN locations l ON b.location_id = l.id
+            LEFT JOIN warehouses w ON l.warehouse_id = w.id
+            WHERE b.id = %s
+        """, (destination_bin_id,))
+        
+        dest_result = cur.fetchone()
+        if not dest_result:
+            return jsonify({'error': 'Destination bin not found'}), 404
+        
+        dest_bin_code, dest_location_code, dest_warehouse_name = dest_result
+        
+        # Check if destination bin is the same as source
+        if source_bin_id == destination_bin_id:
+            return jsonify({'error': 'Cannot move stock to the same bin'}), 400
+        
+        # Check if there's already stock of the same product in destination bin
+        cur.execute("""
+            SELECT si.id, si.on_hand, si.qty_reserved
+            FROM stock_items si
+            JOIN products p ON si.product_id = p.id
+            WHERE si.bin_id = %s AND p.id = (SELECT product_id FROM stock_items WHERE id = %s)
+        """, (destination_bin_id, stock_item_id))
+        
+        existing_stock = cur.fetchone()
+        
+        if existing_stock:
+            # Update existing stock in destination bin
+            existing_id, existing_available, existing_reserved = existing_stock
+            new_available = existing_available + quantity
+            new_reserved = existing_reserved
+            
+            cur.execute("""
+                UPDATE stock_items 
+                SET on_hand = %s, qty_reserved = %s
+                WHERE id = %s
+            """, (new_available, new_reserved, existing_id))
+        else:
+            # Create new stock item in destination bin
+            cur.execute("""
+                INSERT INTO stock_items (product_id, bin_id, on_hand, qty_reserved, batch_id, expiry_date)
+                SELECT product_id, %s, %s, 0, batch_id, expiry_date
+                FROM stock_items 
+                WHERE id = %s
+                RETURNING id
+            """, (destination_bin_id, quantity, stock_item_id))
+            
+            new_stock_id = cur.fetchone()[0]
+        
+        # Update source stock item (reduce available quantity)
+        new_source_available = source_available - quantity
+        
+        # Check if source bin will be empty after move
+        source_will_be_empty = new_source_available == 0
+        
+        # Create transaction records for both source and destination
+        transaction_notes = f"Move: {source_bin_code} → {dest_bin_code}. {notes}"
+        
+        if source_will_be_empty:
+            # Source transaction (deallocation) - CREATE THIS BEFORE DELETING THE STOCK ITEM
+            cur.execute("""
+                INSERT INTO stock_transactions 
+                (stock_item_id, transaction_type, quantity_change, quantity_before, quantity_after, notes, user_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                stock_item_id,
+                'adjust',
+                -quantity,
+                source_available + source_reserved,
+                0,
+                transaction_notes + " (Deallocated)",
+                current_user.id
+            ))
+            
+            # NOW delete the source stock item entirely (deallocation)
+            cur.execute("""
+                DELETE FROM stock_items 
+                WHERE id = %s
+            """, (stock_item_id,))
+        else:
+            # Update the source stock item
+            cur.execute("""
+                UPDATE stock_items 
+                SET on_hand = %s
+                WHERE id = %s
+            """, (new_source_available, stock_item_id))
+            
+            # Source transaction (reduction)
+            cur.execute("""
+                INSERT INTO stock_transactions 
+                (stock_item_id, transaction_type, quantity_change, quantity_before, quantity_after, notes, user_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                stock_item_id,
+                'transfer',
+                -quantity,
+                source_available + source_reserved,
+                new_source_available + source_reserved,
+                transaction_notes,
+                current_user.id
+            ))
+        
+        # Destination transaction (addition)
+        if existing_stock:
+            dest_stock_id = existing_stock[0]
+            dest_quantity_before = existing_stock[1] + existing_stock[2]
+            dest_quantity_after = new_available + new_reserved
+        else:
+            dest_stock_id = new_stock_id
+            dest_quantity_before = 0
+            dest_quantity_after = quantity
+        
+        cur.execute("""
+            INSERT INTO stock_transactions 
+            (stock_item_id, transaction_type, quantity_change, quantity_before, quantity_after, notes, user_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (
+            dest_stock_id,
+            'receive',
+            quantity,
+            dest_quantity_before,
+            dest_quantity_after,
+            transaction_notes,
+            current_user.id
+        ))
+        
+        # Commit transaction
+        cur.connection.commit()
+        cur.close()
+        
+        # Prepare success message
+        if source_will_be_empty:
+            success_message = f'Successfully moved {quantity} units of {product_name} from {source_bin_code} to {dest_bin_code} (source bin deallocated)'
+        else:
+            success_message = f'Successfully moved {quantity} units of {product_name} from {source_bin_code} to {dest_bin_code}'
+        
+        return jsonify({
+            'success': True,
+            'message': success_message,
+            'deallocated': source_will_be_empty,
+            'move_details': {
+                'product_name': product_name,
+                'quantity': quantity,
+                'source_bin': source_bin_code,
+                'source_location': source_location_code or 'Not assigned',
+                'source_warehouse': source_warehouse_name or 'Not assigned',
+                'destination_bin': dest_bin_code,
+                'destination_location': dest_location_code or 'Not assigned',
+                'destination_warehouse': dest_warehouse_name or 'Not assigned'
+            }
+        })
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500

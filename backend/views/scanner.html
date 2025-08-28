@@ -464,6 +464,118 @@
     </div>
 </div>
 
+<!-- Move Stock Modal -->
+<div class="modal fade" id="moveStockModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-arrows-alt me-2"></i>
+                    Move Stock Between Bins
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <!-- Current Bin (Left Side) -->
+                    <div class="col-md-5">
+                        <div class="card border-primary">
+                            <div class="card-header bg-primary text-white">
+                                <h6 class="mb-0"><i class="fas fa-box me-2"></i>From (Current Bin)</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Bin Code</label>
+                                    <input type="text" class="form-control" id="moveCurrentBinCode" readonly>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Location</label>
+                                    <input type="text" class="form-control" id="moveCurrentLocation" readonly>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Warehouse</label>
+                                    <input type="text" class="form-control" id="moveCurrentWarehouse" readonly>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Product</label>
+                                    <input type="text" class="form-control" id="moveProductName" readonly>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Available Quantity</label>
+                                    <input type="text" class="form-control" id="moveAvailableQuantity" readonly>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Arrow -->
+                    <div class="col-md-2 d-flex align-items-center justify-content-center">
+                        <div class="text-center">
+                            <i class="fas fa-arrow-right fa-2x text-primary"></i>
+                            <div class="mt-2">
+                                <label class="form-label">Quantity to Move</label>
+                                <div class="input-group">
+                                    <input type="number" class="form-control" id="moveQuantity" min="1" value="1">
+                                    <button class="btn btn-outline-secondary" type="button" id="moveAllStock">
+                                        All Stock
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Destination Bin (Right Side) -->
+                    <div class="col-md-5">
+                        <div class="card border-success">
+                            <div class="card-header bg-success text-white">
+                                <h6 class="mb-0"><i class="fas fa-map-marker-alt me-2"></i>To (Destination Bin)</h6>
+                            </div>
+                            <div class="card-body">
+                                <div class="mb-3">
+                                    <label class="form-label">Destination Bin *</label>
+                                    <div class="position-relative">
+                                        <input type="text" 
+                                               class="form-control" 
+                                               id="moveDestinationBinInput" 
+                                               placeholder="Type bin code or scan barcode..."
+                                               autocomplete="off"
+                                               required>
+                                        <div id="destinationBinAutocomplete" class="autocomplete-dropdown" style="display: none;"></div>
+                                    </div>
+                                    <input type="hidden" id="moveDestinationBinId" value="">
+                                    <div class="form-text">
+                                        <i class="fas fa-info-circle me-1"></i>
+                                        Type to search bins or scan a bin barcode
+                                    </div>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Destination Location</label>
+                                    <input type="text" class="form-control" id="moveDestinationLocation" readonly>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Destination Warehouse</label>
+                                    <input type="text" class="form-control" id="moveDestinationWarehouse" readonly>
+                                </div>
+                                <div class="mb-3">
+                                    <label class="form-label">Notes</label>
+                                    <textarea class="form-control" id="moveNotes" rows="3" 
+                                              placeholder="Enter any additional notes for this move"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="submitMoveStock">
+                    <i class="fas fa-check me-1"></i>Move Stock
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 <!-- Success Modal -->
 <div class="modal fade" id="successModal" tabindex="-1" aria-hidden="true">
     <div class="modal-dialog modal-sm">
@@ -536,6 +648,16 @@ class WarehouseScanner {
         // Handle change location submission
         document.getElementById('submitChangeLocation').addEventListener('click', () => {
             this.submitChangeLocation();
+        });
+        
+        // Handle move stock submission
+        document.getElementById('submitMoveStock').addEventListener('click', () => {
+            this.submitMoveStock();
+        });
+        
+        // Handle "All Stock" button
+        document.getElementById('moveAllStock').addEventListener('click', () => {
+            this.setMoveAllStock();
         });
         
         // Handle action button clicks using event delegation
@@ -634,8 +756,8 @@ class WarehouseScanner {
             const card = document.createElement('div');
             card.className = 'stock-item-card';
             
-                            const statusClass = this.getStatusClass(item.on_hand);
-                const statusText = this.getStatusText(item.on_hand);
+                                        const statusClass = this.getStatusClass(item.on_hand);
+            const statusText = this.getStatusText(item.on_hand);
             
             card.innerHTML = `
                 <div class="row align-items-center">
@@ -703,6 +825,12 @@ class WarehouseScanner {
     }
     
     showTransactionModal(action, stockItemId, productName) {
+        if (action === 'transfer') {
+            // Show move stock modal instead of regular transaction modal
+            this.showMoveStockModal(stockItemId, productName);
+            return;
+        }
+        
         const modal = new bootstrap.Modal(document.getElementById('transactionModal'));
         const title = document.getElementById('transactionTitle');
         const form = document.getElementById('transactionForm');
@@ -761,6 +889,65 @@ class WarehouseScanner {
         };
         
         modal.show();
+    }
+    
+    showMoveStockModal(stockItemId, productName) {
+        // Find the stock item details
+        const stockItem = this.findStockItem(stockItemId);
+        if (!stockItem) {
+            alert('Stock item not found');
+            return;
+        }
+        
+        const modal = new bootstrap.Modal(document.getElementById('moveStockModal'));
+        
+        // Populate current bin information
+        document.getElementById('moveCurrentBinCode').value = this.currentBin.code;
+        document.getElementById('moveCurrentLocation').value = this.currentBin.location_code || 'Not assigned';
+        document.getElementById('moveCurrentWarehouse').value = this.currentBin.warehouse_name || 'Not assigned';
+        document.getElementById('moveProductName').value = productName;
+        document.getElementById('moveAvailableQuantity').value = stockItem.qty_available;
+        document.getElementById('moveQuantity').value = '1';
+        document.getElementById('moveQuantity').max = stockItem.qty_available;
+        
+        // Store move data
+        this.currentMoveData = {
+            stockItemId: stockItemId,
+            productName: productName,
+            currentBinId: this.currentBin.id,
+            availableQuantity: stockItem.qty_available
+        };
+        
+        // Load available bins for destination
+        this.loadAvailableBins();
+        
+        // Setup destination bin autocomplete
+        this.setupDestinationBinAutocomplete();
+        
+        modal.show();
+    }
+    
+    findStockItem(stockItemId) {
+        // Find stock item in the current display
+        const stockItems = document.querySelectorAll('.stock-item-card');
+        for (let item of stockItems) {
+            const actionBtn = item.querySelector(`[data-stock-id="${stockItemId}"]`);
+            if (actionBtn) {
+                // Extract available quantity from the display
+                const availableElement = item.querySelector('.col-md-3');
+                if (availableElement) {
+                    const availableText = availableElement.textContent;
+                    const availableMatch = availableText.match(/Available:\s*(\d+)/);
+                    const available = availableMatch ? parseInt(availableMatch[1]) : 0;
+                    
+                    return {
+                        id: stockItemId,
+                        qty_available: available
+                    };
+                }
+            }
+        }
+        return null;
     }
     
     getTransactionTypeOptions(action) {
@@ -1139,6 +1326,294 @@ class WarehouseScanner {
         
         // Show success modal
         document.getElementById('successMessage').textContent = data.message;
+        
+        const successModal = new bootstrap.Modal(document.getElementById('successModal'));
+        successModal.show();
+        
+        // Add success animation to the page
+        document.querySelector('.scanner-card').classList.add('success-animation');
+        setTimeout(() => {
+            document.querySelector('.scanner-card').classList.remove('success-animation');
+        }, 500);
+    }
+    
+    async loadAvailableBins() {
+        try {
+            const response = await fetch('/api/bins/available');
+            const data = await response.json();
+            
+            if (response.ok) {
+                this.availableBins = data.bins;
+            }
+        } catch (error) {
+            console.error('Error loading bins:', error);
+        }
+    }
+    
+    setupDestinationBinAutocomplete() {
+        const input = document.getElementById('moveDestinationBinInput');
+        const dropdown = document.getElementById('destinationBinAutocomplete');
+        const hiddenInput = document.getElementById('moveDestinationBinId');
+        
+        let selectedIndex = -1;
+        let filteredBins = [];
+        
+        // Handle input changes
+        input.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            
+            if (query.length === 0) {
+                dropdown.style.display = 'none';
+                hiddenInput.value = '';
+                this.clearDestinationBinInfo();
+                return;
+            }
+            
+            // Filter bins based on query
+            filteredBins = this.availableBins.filter(bin => 
+                bin.code.toLowerCase().includes(query) ||
+                bin.location_code.toLowerCase().includes(query) ||
+                bin.warehouse_name.toLowerCase().includes(query)
+            );
+            
+            this.displayBinAutocompleteResults(filteredBins, dropdown, input, hiddenInput);
+        });
+        
+        // Handle keyboard navigation
+        input.addEventListener('keydown', (e) => {
+            const items = dropdown.querySelectorAll('.autocomplete-item');
+            
+            switch (e.key) {
+                case 'ArrowDown':
+                    e.preventDefault();
+                    selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+                    this.updateSelectedItem(items, selectedIndex);
+                    break;
+                    
+                case 'ArrowUp':
+                    e.preventDefault();
+                    selectedIndex = Math.max(selectedIndex - 1, -1);
+                    this.updateSelectedItem(items, selectedIndex);
+                    break;
+                    
+                case 'Enter':
+                    e.preventDefault();
+                    if (selectedIndex >= 0 && items[selectedIndex]) {
+                        this.selectDestinationBin(items[selectedIndex], input, hiddenInput, dropdown);
+                    } else if (filteredBins.length === 1) {
+                        // Auto-select if only one result
+                        this.selectDestinationBin(items[0], input, hiddenInput, dropdown);
+                    }
+                    break;
+                    
+                case 'Escape':
+                    dropdown.style.display = 'none';
+                    selectedIndex = -1;
+                    break;
+            }
+        });
+        
+        // Handle click outside to close dropdown
+        document.addEventListener('click', (e) => {
+            if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+                selectedIndex = -1;
+            }
+        });
+        
+        // Handle barcode scanning (Enter key with no arrow keys pressed)
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && selectedIndex === -1 && filteredBins.length === 0) {
+                // This might be a barcode scan - validate the bin
+                this.validateAndSelectDestinationBin(input.value.trim(), input, hiddenInput, dropdown);
+            }
+        });
+    }
+    
+    displayBinAutocompleteResults(bins, dropdown, input, hiddenInput) {
+        dropdown.innerHTML = '';
+        
+        if (bins.length === 0) {
+            dropdown.style.display = 'none';
+            return;
+        }
+        
+        bins.forEach((bin, index) => {
+            const item = document.createElement('div');
+            item.className = 'autocomplete-item';
+            item.innerHTML = `
+                <div class="location-code">${bin.code}</div>
+                <div class="warehouse-name">${bin.location_code} - ${bin.warehouse_name}</div>
+            `;
+            
+            item.addEventListener('click', () => {
+                this.selectDestinationBin(item, input, hiddenInput, dropdown);
+            });
+            
+            dropdown.appendChild(item);
+        });
+        
+        dropdown.style.display = 'block';
+    }
+    
+    selectDestinationBin(item, input, hiddenInput, dropdown) {
+        const binCode = item.querySelector('.location-code').textContent;
+        const bin = this.availableBins.find(b => b.code === binCode);
+        
+        if (bin) {
+            input.value = bin.code;
+            hiddenInput.value = bin.id;
+            document.getElementById('moveDestinationLocation').value = bin.location_code || 'Not assigned';
+            document.getElementById('moveDestinationWarehouse').value = bin.warehouse_name || 'Not assigned';
+            dropdown.style.display = 'none';
+        }
+    }
+    
+    clearDestinationBinInfo() {
+        document.getElementById('moveDestinationLocation').value = '';
+        document.getElementById('moveDestinationWarehouse').value = '';
+    }
+    
+    async validateAndSelectDestinationBin(binCode, input, hiddenInput, dropdown) {
+        // Find exact match first
+        let bin = this.availableBins.find(b => 
+            b.code.toLowerCase() === binCode.toLowerCase()
+        );
+        
+        if (bin) {
+            input.value = bin.code;
+            hiddenInput.value = bin.id;
+            document.getElementById('moveDestinationLocation').value = bin.location_code || 'Not assigned';
+            document.getElementById('moveDestinationWarehouse').value = bin.warehouse_name || 'Not assigned';
+            dropdown.style.display = 'none';
+            return;
+        }
+        
+        // If no exact match, show error
+        input.classList.add('is-invalid');
+        setTimeout(() => {
+            input.classList.remove('is-invalid');
+        }, 2000);
+        
+        // Show available options
+        const filteredBins = this.availableBins.filter(b => 
+            b.code.toLowerCase().includes(binCode.toLowerCase())
+        );
+        
+        this.displayBinAutocompleteResults(filteredBins, dropdown, input, hiddenInput);
+    }
+    
+    setMoveAllStock() {
+        const quantityInput = document.getElementById('moveQuantity');
+        const availableQuantity = this.currentMoveData.availableQuantity;
+        
+        // Show confirmation if this will deallocate the source bin
+        if (availableQuantity > 0) {
+            const confirmMessage = `This will move all ${availableQuantity} units from the source bin. The source bin will be completely emptied and deallocated. Continue?`;
+            if (confirm(confirmMessage)) {
+                quantityInput.value = availableQuantity;
+            }
+        } else {
+            quantityInput.value = availableQuantity;
+        }
+    }
+    
+    async submitMoveStock() {
+        const destinationBinId = document.getElementById('moveDestinationBinId').value;
+        const destinationBinInput = document.getElementById('moveDestinationBinInput').value;
+        const quantity = parseInt(document.getElementById('moveQuantity').value);
+        const notes = document.getElementById('moveNotes').value;
+        
+        if (!destinationBinId && !destinationBinInput) {
+            alert('Please select or enter a destination bin');
+            return;
+        }
+        
+        if (!destinationBinId) {
+            alert('Please select a valid bin from the dropdown or scan a valid bin barcode');
+            return;
+        }
+        
+        if (!quantity || quantity <= 0) {
+            alert('Please enter a valid quantity');
+            return;
+        }
+        
+        if (quantity > this.currentMoveData.availableQuantity) {
+            alert(`Cannot move more than available quantity (${this.currentMoveData.availableQuantity})`);
+            return;
+        }
+        
+        // Don't allow moving to the same bin
+        if (destinationBinId === this.currentMoveData.currentBinId) {
+            alert('Cannot move stock to the same bin');
+            return;
+        }
+        
+        // Confirm if this will deallocate the source bin
+        if (quantity === this.currentMoveData.availableQuantity && quantity > 0) {
+            const confirmMessage = `This will move all ${quantity} units from the source bin. The source bin will be completely emptied and deallocated. Continue?`;
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+        }
+        
+        const submitBtn = document.getElementById('submitMoveStock');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Processing...';
+        submitBtn.disabled = true;
+        
+        try {
+            const response = await fetch('/api/scanner/move-stock', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    stock_item_id: this.currentMoveData.stockItemId,
+                    destination_bin_id: destinationBinId,
+                    quantity: quantity,
+                    notes: notes
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                this.showMoveStockSuccess(data);
+                // Refresh bin data
+                this.handleScan(this.currentBin.code);
+            } else {
+                alert('Error: ' + (data.error || 'Move operation failed'));
+            }
+        } catch (error) {
+            console.error('Move stock error:', error);
+            alert('Network error occurred');
+        } finally {
+            submitBtn.innerHTML = originalText;
+            submitBtn.disabled = false;
+        }
+    }
+    
+    showMoveStockSuccess(data) {
+        // Close move stock modal
+        const moveStockModal = bootstrap.Modal.getInstance(document.getElementById('moveStockModal'));
+        moveStockModal.hide();
+        
+        // Show success modal with appropriate styling
+        const successMessage = document.getElementById('successMessage');
+        successMessage.textContent = data.message;
+        
+        // Add special styling if deallocation occurred
+        if (data.deallocated) {
+            successMessage.innerHTML = `
+                <div class="alert alert-warning mb-3">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Note:</strong> The source bin was completely emptied and deallocated.
+                </div>
+                ${data.message}
+            `;
+        }
         
         const successModal = new bootstrap.Modal(document.getElementById('successModal'));
         successModal.show();
