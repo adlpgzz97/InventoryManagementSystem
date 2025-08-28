@@ -1,0 +1,3 @@
+[33m388d7d8[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmaster[m[33m, [m[1;31morigin/master[m[33m, [m[1;31morigin/HEAD[m[33m)[m Update scanner functionality and fix stock operations - Enhanced scanner move functionality with improved error handling - Fixed stock functionality issues - Updated warehouse modal and scanner views - Added new documentation files for scanner and stock fixes
+[33m6813df2[m Fix Stock Functionality: Update to New Bin-Based Structure
+[33m55ce977[m Codebase Cleanup: Remove Temporary and Redundant Files
