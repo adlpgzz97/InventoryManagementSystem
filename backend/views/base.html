@@ -191,11 +191,11 @@
                             <i class="fas fa-server"></i>
                         </button>
                     {% endif %}
-                    <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary btn-sm">
+                    <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-secondary btn-sm">
                         <i class="fas fa-sign-out-alt me-1"></i>Logout
                     </a>
                 {% else %}
-                    <a href="{{ url_for('login') }}" class="btn btn-outline-primary btn-sm">
+                    <a href="{{ url_for('auth.login') }}" class="btn btn-outline-primary btn-sm">
                         <i class="fas fa-sign-in-alt me-1"></i>Login
                     </a>
                 {% endif %}
@@ -211,34 +211,34 @@
                 <div class="position-sticky pt-3">
                     <ul class="nav flex-column">
                         <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'dashboard' %}active{% endif %}" href="{{ url_for('dashboard') }}">
+                            <a class="nav-link {% if request.endpoint == 'dashboard.dashboard' %}active{% endif %}" href="{{ url_for('dashboard.dashboard') }}">
                                 <i class="fas fa-tachometer-alt me-2"></i> Dashboard
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'warehouses' %}active{% endif %}" href="{{ url_for('warehouses') }}">
+                            <a class="nav-link {% if request.endpoint.startswith('warehouses.') %}active{% endif %}" href="{{ url_for('warehouses.warehouses_list') }}">
                                 <i class="fas fa-warehouse me-2"></i> Warehouses
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'products' %}active{% endif %}" href="{{ url_for('products') }}">
+                            <a class="nav-link {% if request.endpoint.startswith('products.') %}active{% endif %}" href="{{ url_for('products.products_list') }}">
                                 <i class="fas fa-box me-2"></i> Products
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'stock' %}active{% endif %}" href="{{ url_for('stock') }}">
+                            <a class="nav-link {% if request.endpoint.startswith('stock.') %}active{% endif %}" href="{{ url_for('stock.stock_list') }}">
                                 <i class="fas fa-boxes me-2"></i> Stock
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'transactions' %}active{% endif %}" href="{{ url_for('transactions') }}">
-                                <i class="fas fa-exchange-alt me-2"></i> Transactions
+                            <a class="nav-link" href="#" title="Coming Soon">
+                                <i class="fas fa-exchange-alt me-2"></i> Transactions <small class="text-muted">(Soon)</small>
                             </a>
                         </li>
 
                         <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'reports' %}active{% endif %}" href="{{ url_for('reports') }}">
-                                <i class="fas fa-chart-bar me-2"></i> Reports
+                            <a class="nav-link" href="#" title="Coming Soon">
+                                <i class="fas fa-chart-bar me-2"></i> Reports <small class="text-muted">(Soon)</small>
                             </a>
                         </li>
                         {% if current_user.role in ['admin', 'manager'] %}
@@ -253,8 +253,8 @@
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'suppliers' %}active{% endif %}" href="{{ url_for('suppliers') }}">
-                                <i class="fas fa-truck me-2"></i> Suppliers
+                            <a class="nav-link" href="#" title="Coming Soon">
+                                <i class="fas fa-truck me-2"></i> Suppliers <small class="text-muted">(Soon)</small>
                             </a>
                         </li>
                         {% endif %}
@@ -287,7 +287,7 @@
             </main>
             
             <!-- Floating Scanner Button -->
-            <a href="{{ url_for('scanner') }}" class="floating-scanner-btn {% if request.endpoint == 'scanner' %}active{% endif %}" title="Warehouse Scanner">
+            <a href="{{ url_for('scanner.scanner_page') }}" class="floating-scanner-btn {% if request.endpoint.startswith('scanner.') %}active{% endif %}" title="Warehouse Scanner">
                 <i class="fas fa-qrcode"></i>
             </a>
             {% endif %}

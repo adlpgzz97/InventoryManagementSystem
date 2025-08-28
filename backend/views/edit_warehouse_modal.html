@@ -2,7 +2,7 @@
 <div class="alert alert-danger">{{ error_message }}</div>
 {% endif %}
 
-<form method="post" id="editWarehouseForm" action="{{ url_for('edit_warehouse', warehouse_id=warehouse.id) }}?modal=1">
+<form method="post" id="editWarehouseForm" action="{{ url_for('warehouses.edit_warehouse', warehouse_id=warehouse.id) }}?modal=1">
     <div class="mb-3">
         <label for="name" class="form-label">Warehouse Name <span class="text-danger">*</span></label>
         <input type="text" class="form-control" id="name" name="name" 

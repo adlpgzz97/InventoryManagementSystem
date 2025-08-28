@@ -134,7 +134,7 @@
                 
                 {% if stock_data|length > 10 %}
                 <div class="text-center mt-3">
-                    <a href="{{ url_for('stock') }}" class="btn btn-outline-primary">
+                    <a href="{{ url_for('stock.stock_list') }}" class="btn btn-outline-primary">
                         View All Stock Items <i class="fas fa-arrow-right"></i>
                     </a>
                 </div>
@@ -162,17 +162,17 @@
             <div class="card-body">
                 <div class="row">
                     <div class="col-md-3 mb-2">
-                        <a href="{{ url_for('products') }}" class="btn btn-outline-primary w-100">
+                        <a href="{{ url_for('products.products_list') }}" class="btn btn-outline-primary w-100">
                             <i class="fas fa-plus-circle"></i> Manage Products
                         </a>
                     </div>
                     <div class="col-md-3 mb-2">
-                        <a href="{{ url_for('stock') }}" class="btn btn-outline-success w-100">
+                        <a href="{{ url_for('stock.stock_list') }}" class="btn btn-outline-success w-100">
                             <i class="fas fa-boxes"></i> View Stock
                         </a>
                     </div>
                     <div class="col-md-3 mb-2">
-                        <a href="{{ url_for('warehouses') }}" class="btn btn-outline-info w-100">
+                        <a href="{{ url_for('warehouses.warehouses_list') }}" class="btn btn-outline-info w-100">
                             <i class="fas fa-warehouse"></i> Manage Warehouses
                         </a>
                     </div>

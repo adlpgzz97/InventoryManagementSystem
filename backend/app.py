@@ -209,8 +209,14 @@ def register_context_processors(app):
 app = create_app()
 
 # Import required modules for error handlers and middleware
-from flask import request
+from flask import request, redirect, url_for
 from datetime import datetime
+
+# Root route redirect
+@app.route('/')
+def index():
+    """Root route - redirect to dashboard"""
+    return redirect(url_for('dashboard.dashboard'))
 
 if __name__ == '__main__':
     logger.info("Starting Inventory Management System...")

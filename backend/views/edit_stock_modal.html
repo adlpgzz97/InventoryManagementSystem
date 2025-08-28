@@ -2,7 +2,7 @@
 <div class="alert alert-danger">{{ error_message }}</div>
 {% endif %}
 
-<form method="post" id="editStockForm" action="{{ url_for('edit_stock', stock_id=stock.id) }}?modal=1">
+<form method="post" id="editStockForm" action="{{ url_for('stock.edit_stock', stock_id=stock.id) }}?modal=1">
     <div class="row">
         <div class="col-md-6">
             <div class="mb-3">
