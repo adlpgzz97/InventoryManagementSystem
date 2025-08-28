@@ -286,7 +286,7 @@ class StockItem:
         try:
             query = """
                 SELECT id, product_id, bin_id, on_hand, qty_reserved,
-                       batch_id, expiry_date, created_at, updated_at
+                       batch_id, expiry_date, created_at
                 FROM stock_items
                 ORDER BY created_at DESC
             """

@@ -460,6 +460,30 @@ class Bin:
             return []
     
     @classmethod
+    def get_all(cls, limit: int = None, offset: int = None) -> List['Bin']:
+        """Get all bins with optional pagination"""
+        try:
+            query = """
+                SELECT id, bin_code, location_id, description, capacity,
+                       created_at, updated_at
+                FROM bins
+                ORDER BY bin_code
+            """
+            
+            if limit:
+                query += f" LIMIT {limit}"
+            if offset:
+                query += f" OFFSET {offset}"
+            
+            results = execute_query(query, fetch_all=True)
+            
+            return [cls.from_dict(result) for result in results]
+            
+        except Exception as e:
+            logger.error(f"Error getting all bins: {e}")
+            return []
+    
+    @classmethod
     def create(cls, bin_code: str, location_id: str = None, description: str = None,
                capacity: int = None) -> Optional['Bin']:
         """Create a new bin"""
