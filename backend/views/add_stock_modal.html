@@ -30,19 +30,19 @@
         </div>
         <div class="col-md-6">
             <div class="mb-3">
-                <label for="location_id" class="form-label">Location <span class="text-danger">*</span></label>
-                <select class="form-select" id="location_id" name="location_id" required>
-                    <option value="">Select Location</option>
-                    {% for location in locations %}
-                    <option value="{{ location.id }}">
-                        {{ location.warehouse_name }} - {{ location.full_code }}
+                <label for="bin_id" class="form-label">Storage Bin <span class="text-danger">*</span></label>
+                <select class="form-select" id="bin_id" name="bin_id" required>
+                    <option value="">Select Storage Bin</option>
+                    {% for bin in bins %}
+                    <option value="{{ bin.id }}">
+                        {{ bin.display_name }}
                     </option>
                     {% endfor %}
                 </select>
-                {% if not locations %}
+                {% if not bins %}
                 <small class="form-text text-warning">
                     <i class="fas fa-exclamation-triangle me-1"></i>
-                    No locations available. Create a warehouse with locations first.
+                    No storage bins available. Create a warehouse with locations and bins first.
                 </small>
                 {% endif %}
             </div>
@@ -99,7 +99,7 @@
         <button type="button" class="btn btn-secondary me-2" data-bs-dismiss="modal">
             <i class="fas fa-times me-2"></i>Cancel
         </button>
-        <button type="submit" class="btn btn-success" {% if not products or not locations %}disabled{% endif %}>
+        <button type="submit" class="btn btn-success" {% if not products or not bins %}disabled{% endif %}>
             <i class="fas fa-plus me-2"></i>Add Stock
         </button>
     </div>

@@ -19,12 +19,12 @@
         </div>
         <div class="col-md-6">
             <div class="mb-3">
-                <label for="location_id" class="form-label">Location <span class="text-danger">*</span></label>
-                <select class="form-select" id="location_id" name="location_id" required>
-                    <option value="">Select Location</option>
-                    {% for location in locations %}
-                    <option value="{{ location.id }}" {% if location.id == stock.location_id %}selected{% endif %}>
-                        {{ location.warehouse_name }} - {{ location.full_code }}
+                <label for="bin_id" class="form-label">Storage Bin <span class="text-danger">*</span></label>
+                <select class="form-select" id="bin_id" name="bin_id" required>
+                    <option value="">Select Storage Bin</option>
+                    {% for bin in bins %}
+                    <option value="{{ bin.id }}" {% if bin.id == stock.bin_id %}selected{% endif %}>
+                        {{ bin.display_name }}
                     </option>
                     {% endfor %}
                 </select>

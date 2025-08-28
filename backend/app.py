@@ -146,10 +146,10 @@ def postgrest_request(endpoint, method='GET', data=None):
         print(f"PostgREST request error: {e}")
         return None
 
-def handle_stock_receiving(product_id, location_id, qty_available, qty_reserved=0, batch_id=None, expiry_date=None):
+def handle_stock_receiving(product_id, bin_id, qty_available, qty_reserved=0, batch_id=None, expiry_date=None):
     """
     Handle stock receiving with batch tracking logic.
-    For non-batch-tracked products: combine stock in same location
+    For non-batch-tracked products: combine stock in same bin
     For batch-tracked products: create separate inventory record
     """
     try:
@@ -169,9 +169,9 @@ def handle_stock_receiving(product_id, location_id, qty_available, qty_reserved=
         if is_batch_tracked:
             # For batch-tracked products, always create new record
             cur.execute("""
-                INSERT INTO stock_items (product_id, location_id, on_hand, qty_reserved, batch_id, expiry_date)
+                INSERT INTO stock_items (product_id, bin_id, on_hand, qty_reserved, batch_id, expiry_date)
                 VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
-            """, (product_id, location_id, qty_available, qty_reserved, batch_id, expiry_date))
+            """, (product_id, bin_id, qty_available, qty_reserved, batch_id, expiry_date))
             
             stock_id = cur.fetchone()['id']
             conn.commit()
@@ -183,11 +183,11 @@ def handle_stock_receiving(product_id, location_id, qty_available, qty_reserved=
             
             return {'id': stock_id}
         else:
-            # For non-batch-tracked products, check if stock already exists in this location
+            # For non-batch-tracked products, check if stock already exists in this bin
             cur.execute("""
                 SELECT * FROM stock_items 
-                WHERE product_id = %s AND location_id = %s
-            """, (product_id, location_id))
+                WHERE product_id = %s AND bin_id = %s
+            """, (product_id, bin_id))
             existing_stock = cur.fetchone()
             
             if existing_stock:
@@ -215,9 +215,9 @@ def handle_stock_receiving(product_id, location_id, qty_available, qty_reserved=
             else:
                 # Create new stock record (no batch info for non-batch-tracked)
                 cur.execute("""
-                    INSERT INTO stock_items (product_id, location_id, on_hand, qty_reserved, batch_id, expiry_date)
+                    INSERT INTO stock_items (product_id, bin_id, on_hand, qty_reserved, batch_id, expiry_date)
                     VALUES (%s, %s, %s, %s, NULL, NULL) RETURNING id
-                """, (product_id, location_id, qty_available, qty_reserved))
+                """, (product_id, bin_id, qty_available, qty_reserved))
                 
                 stock_id = cur.fetchone()['id']
                 conn.commit()
@@ -1705,13 +1705,24 @@ def edit_stock(stock_id):
             # Handle form submission
             data = {
                 'product_id': request.form.get('product_id'),
-                'location_id': request.form.get('location_id'),
+                'bin_id': request.form.get('bin_id'),
                 'on_hand': int(request.form.get('qty_available')),
                 'qty_reserved': int(request.form.get('qty_reserved'))
             }
             
-            # Update via PostgREST
-            response = postgrest_request(f'stock_items?id=eq.{stock_id}', 'PATCH', data)
+            # Update via direct database query for better control
+            conn = get_db_connection()
+            cur = conn.cursor()
+            
+            cur.execute("""
+                UPDATE stock_items 
+                SET product_id = %s, bin_id = %s, on_hand = %s, qty_reserved = %s
+                WHERE id = %s
+            """, (data['product_id'], data['bin_id'], data['on_hand'], data['qty_reserved'], stock_id))
+            
+            conn.commit()
+            cur.close()
+            conn.close()
             
             if is_modal:
                 return '<div class="alert alert-success">Stock updated successfully!</div>'
@@ -1721,36 +1732,68 @@ def edit_stock(stock_id):
         
         else:
             # GET request - show form
-            stock_data = postgrest_request(f'stock_items?id=eq.{stock_id}&select=*')
-            products_data = postgrest_request('products?select=id,sku,name')
-            locations_data = postgrest_request('locations?select=id,aisle,bin,warehouses(name)')
+            # Get stock data with bin and location information
+            conn = get_db_connection()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            
+            cur.execute("""
+                SELECT si.*, b.code as bin_code, l.full_code, w.name as warehouse_name
+                FROM stock_items si
+                LEFT JOIN bins b ON si.bin_id = b.id
+                LEFT JOIN locations l ON b.location_id = l.id
+                LEFT JOIN warehouses w ON l.warehouse_id = w.id
+                WHERE si.id = %s
+            """, (stock_id,))
+            
+            stock_data = cur.fetchone()
             
             if not stock_data:
+                cur.close()
+                conn.close()
                 flash('Stock item not found.', 'error')
                 return redirect(url_for('stock'))
             
-            stock = stock_data[0]
-            # Format locations for dropdown
-            formatted_locations = []
-            for loc in locations_data or []:
-                warehouse_name = loc.get('warehouses', {}).get('name', 'Unknown') if loc.get('warehouses') else 'Unknown'
-                formatted_locations.append({
-                    'id': loc['id'],
-                    'aisle': loc['aisle'],
-                    'bin': loc['bin'],
-                    'warehouse_name': warehouse_name
+            stock = dict(stock_data)
+            
+            # Get products data
+            products_data = postgrest_request('products?select=id,sku,name')
+            
+            # Get bins with location and warehouse information
+            cur.execute("""
+                SELECT b.id, b.code, l.full_code, w.name as warehouse_name
+                FROM bins b
+                LEFT JOIN locations l ON b.location_id = l.id
+                LEFT JOIN warehouses w ON l.warehouse_id = w.id
+                ORDER BY w.name, l.full_code, b.code
+            """)
+            
+            bins_data = cur.fetchall()
+            cur.close()
+            conn.close()
+            
+            # Format bins for dropdown
+            formatted_bins = []
+            for bin_data in bins_data:
+                warehouse_name = bin_data['warehouse_name'] or 'Unknown'
+                location_code = bin_data['full_code'] or 'Unknown'
+                formatted_bins.append({
+                    'id': bin_data['id'],
+                    'code': bin_data['code'],
+                    'location_code': location_code,
+                    'warehouse_name': warehouse_name,
+                    'display_name': f"{warehouse_name} - {location_code} - {bin_data['code']}"
                 })
             
             if is_modal:
                 return render_template('edit_stock_modal.html', 
                                      stock=stock, 
                                      products=products_data or [], 
-                                     locations=formatted_locations)
+                                     bins=formatted_bins)
             else:
                 return render_template('edit_stock.html', 
                                      stock=stock, 
                                      products=products_data or [], 
-                                     locations=formatted_locations)
+                                     bins=formatted_bins)
                 
     except Exception as e:
         error_msg = f'Error updating stock: {e}'
@@ -2201,7 +2244,7 @@ def add_stock():
         if request.method == 'POST':
             # Handle form submission using smart stock receiving logic
             product_id = request.form.get('product_id')
-            location_id = request.form.get('location_id')
+            bin_id = request.form.get('bin_id')
             qty_available = int(request.form.get('qty_available'))
             qty_reserved = int(request.form.get('qty_reserved', 0))
             batch_id = request.form.get('batch_id') or None
@@ -2209,7 +2252,7 @@ def add_stock():
             
             # Use smart stock receiving function
             response = handle_stock_receiving(
-                product_id, location_id, qty_available, qty_reserved, batch_id, expiry_date
+                product_id, bin_id, qty_available, qty_reserved, batch_id, expiry_date
             )
             
             if is_modal:
@@ -2221,27 +2264,44 @@ def add_stock():
         else:
             # GET request - show form
             products_data = postgrest_request('products?select=id,sku,name')
-            locations_data = postgrest_request('locations?select=id,aisle,bin,warehouses(name)')
             
-            # Format locations for dropdown
-            formatted_locations = []
-            for loc in locations_data or []:
-                warehouse_name = loc.get('warehouses', {}).get('name', 'Unknown') if loc.get('warehouses') else 'Unknown'
-                formatted_locations.append({
-                    'id': loc['id'],
-                    'aisle': loc['aisle'],
-                    'bin': loc['bin'],
-                    'warehouse_name': warehouse_name
+            # Get bins with location and warehouse information
+            conn = get_db_connection()
+            cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+            
+            cur.execute("""
+                SELECT b.id, b.code, l.full_code, w.name as warehouse_name
+                FROM bins b
+                LEFT JOIN locations l ON b.location_id = l.id
+                LEFT JOIN warehouses w ON l.warehouse_id = w.id
+                ORDER BY w.name, l.full_code, b.code
+            """)
+            
+            bins_data = cur.fetchall()
+            cur.close()
+            conn.close()
+            
+            # Format bins for dropdown
+            formatted_bins = []
+            for bin_data in bins_data:
+                warehouse_name = bin_data['warehouse_name'] or 'Unknown'
+                location_code = bin_data['full_code'] or 'Unknown'
+                formatted_bins.append({
+                    'id': bin_data['id'],
+                    'code': bin_data['code'],
+                    'location_code': location_code,
+                    'warehouse_name': warehouse_name,
+                    'display_name': f"{warehouse_name} - {location_code} - {bin_data['code']}"
                 })
             
             if is_modal:
                 return render_template('add_stock_modal.html', 
                                      products=products_data or [], 
-                                     locations=formatted_locations)
+                                     bins=formatted_bins)
             else:
                 return render_template('add_stock.html', 
                                      products=products_data or [], 
-                                     locations=formatted_locations)
+                                     bins=formatted_bins)
                 
     except Exception as e:
         error_msg = f'Error creating stock item: {e}'
