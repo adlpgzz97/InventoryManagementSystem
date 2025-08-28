@@ -169,7 +169,7 @@ def handle_stock_receiving(product_id, location_id, qty_available, qty_reserved=
         if is_batch_tracked:
             # For batch-tracked products, always create new record
             cur.execute("""
-                INSERT INTO stock_items (product_id, location_id, qty_available, qty_reserved, batch_id, expiry_date)
+                INSERT INTO stock_items (product_id, location_id, on_hand, qty_reserved, batch_id, expiry_date)
                 VALUES (%s, %s, %s, %s, %s, %s) RETURNING id
             """, (product_id, location_id, qty_available, qty_reserved, batch_id, expiry_date))
             
@@ -192,12 +192,12 @@ def handle_stock_receiving(product_id, location_id, qty_available, qty_reserved=
             
             if existing_stock:
                 # Combine with existing stock
-                new_available = existing_stock['qty_available'] + qty_available
+                new_available = existing_stock['on_hand'] + qty_available
                 new_reserved = existing_stock['qty_reserved'] + qty_reserved
                 
                 cur.execute("""
                     UPDATE stock_items 
-                    SET qty_available = %s, qty_reserved = %s 
+                    SET on_hand = %s, qty_reserved = %s 
                     WHERE id = %s
                 """, (new_available, new_reserved, existing_stock['id']))
                 
@@ -208,14 +208,14 @@ def handle_stock_receiving(product_id, location_id, qty_available, qty_reserved=
                 # Log transaction
                 log_stock_transaction(
                     existing_stock['id'], 'receive', qty_available, 
-                    existing_stock['qty_available'], new_available
+                    existing_stock['on_hand'], new_available
                 )
                 
                 return {'id': existing_stock['id']}
             else:
                 # Create new stock record (no batch info for non-batch-tracked)
                 cur.execute("""
-                    INSERT INTO stock_items (product_id, location_id, qty_available, qty_reserved, batch_id, expiry_date)
+                    INSERT INTO stock_items (product_id, location_id, on_hand, qty_reserved, batch_id, expiry_date)
                     VALUES (%s, %s, %s, %s, NULL, NULL) RETURNING id
                 """, (product_id, location_id, qty_available, qty_reserved))
                 
@@ -308,18 +308,19 @@ def dashboard():
         cur.execute("SELECT COUNT(*) as count FROM warehouses")
         total_warehouses = cur.fetchone()['count']
         
-        # Get stock data with product and location information
+        # Get stock data with product and bin information
         cur.execute("""
             SELECT 
                 si.*,
                 p.name as product_name, 
                 p.sku as product_sku,
-                l.aisle, 
-                l.bin,
+                b.code as bin_code,
+                l.full_code,
                 w.name as warehouse_name
             FROM stock_items si
             LEFT JOIN products p ON si.product_id = p.id
-            LEFT JOIN locations l ON si.location_id = l.id
+            LEFT JOIN bins b ON si.bin_id = b.id
+            LEFT JOIN locations l ON b.location_id = l.id
             LEFT JOIN warehouses w ON l.warehouse_id = w.id
             ORDER BY si.created_at DESC
             LIMIT 10
@@ -338,8 +339,8 @@ def dashboard():
                 'sku': item_dict.get('product_sku', 'N/A')
             }
             item_dict['locations'] = {
-                'aisle': item_dict.get('aisle', ''),
-                'bin': item_dict.get('bin', ''),
+                'full_code': item_dict.get('full_code', ''),
+                'bin_code': item_dict.get('bin_code', ''),
                 'warehouses': {
                     'name': item_dict.get('warehouse_name', 'Unknown')
                 }
@@ -347,7 +348,7 @@ def dashboard():
             stock_data.append(item_dict)
         
         # Calculate low stock items
-        low_stock_items = [item for item in stock_data if item['qty_available'] < 10]
+        low_stock_items = [item for item in stock_data if item['on_hand'] < 10]
         
         return render_template('dashboard.html', 
                              stock_data=stock_data,
@@ -367,15 +368,24 @@ def products():
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
-        # Get products with stock totals
+        # Get products with stock totals and replenishment policies
         cur.execute("""
             SELECT 
                 p.*,
-                COALESCE(SUM(si.qty_available), 0) as available_stock,
-                COALESCE(SUM(si.qty_available + si.qty_reserved), 0) as total_stock
+                COALESCE(SUM(si.on_hand), 0) as available_stock,
+                COALESCE(SUM(si.on_hand + si.qty_reserved), 0) as total_stock,
+                rp.forecasting_mode,
+                rp.manual_reorder_point,
+                rp.manual_safety_stock,
+                rp.manual_lead_time_days,
+                rp.forecasting_notes
             FROM products p
             LEFT JOIN stock_items si ON p.id = si.product_id
-            GROUP BY p.id, p.sku, p.name, p.description, p.dimensions, p.weight, p.barcode, p.picture_url, p.batch_tracked, p.created_at
+            LEFT JOIN replenishment_policies rp ON p.id = rp.product_id
+            GROUP BY p.id, p.sku, p.name, p.description, p.dimensions, p.weight, 
+                     p.barcode, p.picture_url, p.batch_tracked, p.created_at,
+                     rp.forecasting_mode, rp.manual_reorder_point, rp.manual_safety_stock,
+                     rp.manual_lead_time_days, rp.forecasting_notes
             ORDER BY p.created_at DESC
         """)
         products_data = cur.fetchall()
@@ -398,18 +408,19 @@ def stock():
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
-        # Get stock items with product and location information
+        # Get stock items with product and bin information
         cur.execute("""
             SELECT 
                 si.*,
                 p.name as product_name, 
                 p.sku as product_sku,
-                l.aisle, 
-                l.bin,
+                b.code as bin_code,
+                l.full_code,
                 w.name as warehouse_name
             FROM stock_items si
             LEFT JOIN products p ON si.product_id = p.id
-            LEFT JOIN locations l ON si.location_id = l.id
+            LEFT JOIN bins b ON si.bin_id = b.id
+            LEFT JOIN locations l ON b.location_id = l.id
             LEFT JOIN warehouses w ON l.warehouse_id = w.id
             ORDER BY si.created_at DESC
         """)
@@ -421,14 +432,23 @@ def stock():
         stock_list = []
         for item in stock_data:
             item_dict = dict(item)
+            
+            # Use the actual bin code from the bins table
+            bin_code = item_dict.get('bin_code', '')
+            full_code = item_dict.get('full_code', '')
+            
+            # Location code should show the full location code
+            location_code = full_code
+            
             # Create nested structure for template compatibility
             item_dict['products'] = {
                 'name': item_dict.get('product_name', 'Unknown'),
                 'sku': item_dict.get('product_sku', 'N/A')
             }
             item_dict['locations'] = {
-                'aisle': item_dict.get('aisle', ''),
-                'bin': item_dict.get('bin', ''),
+                'full_code': item_dict.get('full_code', ''),
+                'bin_code': bin_code,
+                'location_code': location_code,
                 'warehouses': {
                     'name': item_dict.get('warehouse_name', 'Unknown')
                 }
@@ -453,19 +473,80 @@ def warehouses():
             SELECT w.*, COUNT(l.id) as location_count
             FROM warehouses w
             LEFT JOIN locations l ON w.id = l.warehouse_id
-            GROUP BY w.id, w.name, w.address
+            GROUP BY w.id, w.name, w.address, w.code
             ORDER BY w.name
         """)
         warehouses_data = cur.fetchall()
         
-        # Get locations for each warehouse
+        # Get locations for each warehouse with hierarchical structure
         warehouse_list = []
         for warehouse in warehouses_data:
             warehouse_dict = dict(warehouse)
             
-            # Get locations for this warehouse
-            cur.execute("SELECT * FROM locations WHERE warehouse_id = %s ORDER BY aisle, bin", (warehouse['id'],))
+            # Get locations for this warehouse with hierarchical structure and bin counts
+            cur.execute("""
+                SELECT 
+                    l.*,
+                    COUNT(b.id) as bin_count,
+                    COUNT(CASE WHEN si.on_hand > 0 THEN 1 END) as occupied_bins
+                FROM locations l
+                LEFT JOIN bins b ON l.id = b.location_id
+                LEFT JOIN stock_items si ON b.id = si.bin_id
+                WHERE l.warehouse_id = %s 
+                GROUP BY l.id, l.full_code, l.warehouse_id
+                ORDER BY l.full_code
+            """, (warehouse['id'],))
             locations = cur.fetchall()
+            
+            # Organize locations hierarchically
+            hierarchical_locations = {}
+            for loc in locations:
+                loc_dict = dict(loc)
+                # Parse the full_code to extract hierarchical components
+                # Expected format: A2F10 (Area2, RackF, Level10)
+                full_code = loc_dict['full_code'] if loc_dict['full_code'] else ''
+                
+                if len(full_code) >= 4 and full_code.startswith('A'):
+                    # Extract area number (A2 -> 2)
+                    area_number = full_code[1] if len(full_code) > 1 and full_code[1].isdigit() else '1'
+                    area_code = f"A{area_number}"
+                    
+                    # Extract rack letter (A2F10 -> F)
+                    rack_letter = full_code[2] if len(full_code) > 2 else 'A'
+                    rack_code = f"R{ord(rack_letter) - ord('A') + 1:02d}"
+                    
+                    # Extract level number (A2F10 -> 10)
+                    level_number = full_code[3:] if len(full_code) > 3 else '1'
+                    level_code = f"L{level_number}"
+                    
+                    warehouse_code = 'W1'  # Default warehouse code
+                    
+                    # Build hierarchical structure
+                    if area_code not in hierarchical_locations:
+                        hierarchical_locations[area_code] = {
+                            'name': f'Area {area_code}',
+                            'code': area_code,
+                            'racks': {}
+                        }
+                    
+                    if rack_code not in hierarchical_locations[area_code]['racks']:
+                        hierarchical_locations[area_code]['racks'][rack_code] = {
+                            'name': f'Rack {rack_code}',
+                            'code': rack_code,
+                            'levels': {}
+                        }
+                    
+                    if level_code not in hierarchical_locations[area_code]['racks'][rack_code]['levels']:
+                        hierarchical_locations[area_code]['racks'][rack_code]['levels'][level_code] = {
+                            'name': f'Level {level_code}',
+                            'code': level_code,
+                            'location_id': loc_dict['id'],
+                            'full_code': loc_dict['full_code'],
+                            'bin_count': loc_dict['bin_count'] or 0,
+                            'occupied_bins': loc_dict['occupied_bins'] or 0
+                        }
+            
+            warehouse_dict['hierarchical_locations'] = hierarchical_locations
             warehouse_dict['locations'] = [dict(loc) for loc in locations] if locations else []
             
             warehouse_list.append(warehouse_dict)
@@ -476,6 +557,12 @@ def warehouses():
     except Exception as e:
         flash(f'Error loading warehouses: {e}', 'error')
         return render_template('warehouses.html', warehouses=[])
+
+@app.route('/suppliers')
+@login_required
+def suppliers():
+    """Suppliers listing"""
+    return render_template('suppliers.html')
 
 @app.route('/reports')
 @login_required
@@ -495,19 +582,20 @@ def reports():
         cur.execute("SELECT COUNT(*) as count FROM warehouses")
         total_warehouses = cur.fetchone()['count']
         
-        # Get stock data with product and location information for analysis
+        # Get stock data with product and bin information for analysis
         cur.execute("""
             SELECT 
                 si.*,
                 p.name as product_name, 
                 p.sku as product_sku,
                 p.batch_tracked,
-                l.aisle, 
-                l.bin,
+                b.code as bin_code,
+                l.full_code,
                 w.name as warehouse_name
             FROM stock_items si
             LEFT JOIN products p ON si.product_id = p.id
-            LEFT JOIN locations l ON si.location_id = l.id
+            LEFT JOIN bins b ON si.bin_id = b.id
+            LEFT JOIN locations l ON b.location_id = l.id
             LEFT JOIN warehouses w ON l.warehouse_id = w.id
             ORDER BY si.created_at DESC
         """)
@@ -524,8 +612,8 @@ def reports():
                 'batch_tracked': item_dict.get('batch_tracked', False)
             }
             item_dict['locations'] = {
-                'aisle': item_dict.get('aisle', ''),
-                'bin': item_dict.get('bin', ''),
+                'full_code': item_dict.get('full_code', ''),
+                'bin_code': item_dict.get('bin_code', ''),
                 'warehouses': {
                     'name': item_dict.get('warehouse_name', 'Unknown')
                 }
@@ -554,7 +642,7 @@ def reports():
             today = datetime.now().date()
             
             for item in stock_data:
-                qty = item.get('qty_available', 0)
+                qty = item.get('on_hand', 0)
                 
                 # Stock level categorization
                 if qty == 0:
@@ -567,13 +655,13 @@ def reports():
                         location = 'Unknown'
                         if item.get('locations') and item['locations'].get('warehouses'):
                             warehouse_name = item['locations']['warehouses'].get('name', 'Unknown')
-                            location = f"{item['locations'].get('aisle', '')}{item['locations'].get('bin', '')}"
+                            location = item['locations'].get('full_code', '')
                         
                         low_stock_alerts.append({
                             'product_name': item['products'].get('name', 'Unknown'),
                             'sku': item['products'].get('sku', 'N/A'),
                             'location': f"{warehouse_name} - {location}",
-                            'qty_available': qty
+                            'on_hand': qty
                         })
                 else:
                     in_stock_count += 1
@@ -602,7 +690,7 @@ def reports():
                             location = 'Unknown'
                             if item.get('locations') and item['locations'].get('warehouses'):
                                 warehouse_name = item['locations']['warehouses'].get('name', 'Unknown')
-                                location = f"{item['locations'].get('aisle', '')}{item['locations'].get('bin', '')}"
+                                location = item['locations'].get('full_code', '')
                             
                             expiry_alerts.append({
                                 'product_name': item['products'].get('name', 'Unknown') if item.get('products') else 'Unknown',
@@ -623,7 +711,7 @@ def reports():
             })
         
         # Sort alerts by priority
-        low_stock_alerts.sort(key=lambda x: x['qty_available'])
+        low_stock_alerts.sort(key=lambda x: x['on_hand'])
         expiry_alerts.sort(key=lambda x: x['days_to_expiry'])
         
         # Batch analytics (if batch tracking is used)
@@ -635,7 +723,7 @@ def reports():
         # Detailed stock report
         detailed_stock_report = []
         for item in (stock_data or []):
-            qty_available = item.get('qty_available', 0)
+            qty_available = item.get('on_hand', 0)
             
             # Determine status
             if qty_available == 0:
@@ -661,7 +749,7 @@ def reports():
                 'sku': item['products'].get('sku', 'N/A') if item.get('products') else 'N/A',
                 'warehouse_name': item['locations']['warehouses'].get('name', 'Unknown') if item.get('locations') and item['locations'].get('warehouses') else 'Unknown',
                 'location': f"{item['locations'].get('aisle', '')}{item['locations'].get('bin', '')}" if item.get('locations') else 'Unknown',
-                'qty_available': qty_available,
+                'on_hand': qty_available,
                 'qty_reserved': item.get('qty_reserved', 0),
                 'batch_id': item.get('batch_id'),
                 'expiry_date': item.get('expiry_date'),
@@ -782,42 +870,58 @@ def api_products():
         return jsonify({'error': str(e)}), 500
 
 @app.route('/product/details', methods=['GET'])
+@login_required
 def product_details_modal():
     """Serve product details modal template"""
+    print(f"Modal template request from user {current_user.username if current_user.is_authenticated else 'Not authenticated'}")
     return render_template('product_details_modal.html')
 
 @app.route('/api/product/<product_id>/details', methods=['GET'])
+@login_required
 def api_product_details(product_id):
     """API endpoint for comprehensive product details"""
+    print(f"API request for product {product_id} from user {current_user.username if current_user.is_authenticated else 'Not authenticated'}")
     try:
         conn = get_db_connection()
         cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
         
-        # Get basic product information
-        cur.execute("SELECT * FROM products WHERE id = %s", (product_id,))
+        # Get basic product information with replenishment policies
+        cur.execute("""
+            SELECT 
+                p.*,
+                rp.forecasting_mode,
+                rp.manual_reorder_point,
+                rp.manual_safety_stock,
+                rp.manual_lead_time_days,
+                rp.forecasting_notes
+            FROM products p
+            LEFT JOIN replenishment_policies rp ON p.id = rp.product_id
+            WHERE p.id = %s
+        """, (product_id,))
         product = cur.fetchone()
         
         if not product:
             return jsonify({'error': 'Product not found'}), 404
         
-        # Get location-specific stock details
+        # Get bin-specific stock details
         cur.execute("""
             SELECT 
                 si.id,
-                si.qty_available,
+                si.on_hand,
                 si.qty_reserved,
                 si.batch_id,
                 si.expiry_date,
                 si.created_at,
-                l.aisle,
-                l.bin,
+                b.code as bin_code,
+                l.full_code,
                 w.name as warehouse_name,
                 w.address as warehouse_address
             FROM stock_items si
-            LEFT JOIN locations l ON si.location_id = l.id
+            LEFT JOIN bins b ON si.bin_id = b.id
+            LEFT JOIN locations l ON b.location_id = l.id
             LEFT JOIN warehouses w ON l.warehouse_id = w.id
             WHERE si.product_id = %s
-            ORDER BY w.name, l.aisle, l.bin
+            ORDER BY w.name, l.full_code
         """, (product_id,))
         stock_locations = cur.fetchall()
         
@@ -877,19 +981,34 @@ def api_product_details(product_id):
         """, (product_id,))
         usage_stats = cur.fetchone()
         
-        # Calculate reorder point and safety stock
+        # Calculate reorder point and safety stock using hybrid approach
         avg_daily_usage = usage_stats['avg_daily_usage'] or 0
         usage_std_dev = usage_stats['usage_std_dev'] or 0
-        lead_time_days = 7  # Assume 7 days lead time
-        safety_stock = max(usage_std_dev * 2, avg_daily_usage * 0.5)  # 2 standard deviations or 50% of daily usage
-        reorder_point = (avg_daily_usage * lead_time_days) + safety_stock
+        
+        # Use the new database function for hybrid forecasting calculation
+        cur.execute("""
+            SELECT * FROM calculate_product_forecasting(%s, %s, %s)
+        """, (product_id, avg_daily_usage, usage_std_dev))
+        forecasting_result = cur.fetchone()
+        
+        if forecasting_result:
+            reorder_point = forecasting_result['reorder_point']
+            safety_stock = forecasting_result['safety_stock']
+            lead_time_days = forecasting_result['lead_time_days']
+            calculation_mode = forecasting_result['calculation_mode']
+        else:
+            # Fallback to original calculation if function fails
+            lead_time_days = 7
+            safety_stock = max(usage_std_dev * 2, avg_daily_usage * 0.5)
+            reorder_point = (avg_daily_usage * lead_time_days) + safety_stock
+            calculation_mode = 'automatic'
         
         # Get current total stock
         cur.execute("""
             SELECT 
-                COALESCE(SUM(qty_available), 0) as total_available,
+                COALESCE(SUM(on_hand), 0) as total_available,
                 COALESCE(SUM(qty_reserved), 0) as total_reserved,
-                COALESCE(SUM(qty_available + qty_reserved), 0) as total_stock
+                COALESCE(SUM(on_hand + qty_reserved), 0) as total_stock
             FROM stock_items 
             WHERE product_id = %s
         """, (product_id,))
@@ -900,10 +1019,11 @@ def api_product_details(product_id):
             SELECT 
                 w.name as warehouse_name,
                 COUNT(si.id) as locations_count,
-                SUM(si.qty_available) as total_available,
+                SUM(si.on_hand) as total_available,
                 SUM(si.qty_reserved) as total_reserved
             FROM stock_items si
-            LEFT JOIN locations l ON si.location_id = l.id
+            LEFT JOIN bins b ON si.bin_id = b.id
+            LEFT JOIN locations l ON b.location_id = l.id
             LEFT JOIN warehouses w ON l.warehouse_id = w.id
             WHERE si.product_id = %s
             GROUP BY w.name
@@ -918,12 +1038,12 @@ def api_product_details(product_id):
                 SELECT 
                     si.batch_id,
                     si.expiry_date,
-                    si.qty_available,
-                    l.aisle,
-                    l.bin,
+                    si.on_hand,
+                    l.full_code,
                     w.name as warehouse_name
                 FROM stock_items si
-                LEFT JOIN locations l ON si.location_id = l.id
+                LEFT JOIN bins b ON si.bin_id = b.id
+                LEFT JOIN locations l ON b.location_id = l.id
                 LEFT JOIN warehouses w ON l.warehouse_id = w.id
                 WHERE si.product_id = %s 
                 AND si.expiry_date IS NOT NULL
@@ -950,7 +1070,8 @@ def api_product_details(product_id):
                 'reorder_point': reorder_point,
                 'current_stock': current_stock['total_available'],
                 'days_of_stock': current_stock['total_available'] / avg_daily_usage if avg_daily_usage > 0 else float('inf'),
-                'stock_status': 'low' if current_stock['total_available'] <= reorder_point else 'ok'
+                'stock_status': 'low' if current_stock['total_available'] <= reorder_point else 'ok',
+                'calculation_mode': calculation_mode
             },
             'warehouse_distribution': [dict(w) for w in warehouse_distribution],
             'expiry_alerts': [dict(alert) for alert in expiry_alerts],
@@ -963,6 +1084,96 @@ def api_product_details(product_id):
         }
         
         return jsonify(product_details)
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/product/<product_id>/forecasting', methods=['PUT'])
+@login_required
+def api_update_product_forecasting(product_id):
+    """API endpoint to update product forecasting settings"""
+    if current_user.role not in ['admin', 'manager']:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    try:
+        data = request.get_json()
+        
+        if not data:
+            return jsonify({'error': 'No data provided'}), 400
+        
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Validate product exists
+        cur.execute("SELECT id FROM products WHERE id = %s", (product_id,))
+        if not cur.fetchone():
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Product not found'}), 404
+        
+        # Check if replenishment policy exists
+        cur.execute("SELECT id FROM replenishment_policies WHERE product_id = %s", (product_id,))
+        policy_exists = cur.fetchone()
+        
+        if policy_exists:
+            # Update existing policy
+            update_fields = []
+            update_values = []
+            
+            if 'forecasting_mode' in data:
+                if data['forecasting_mode'] not in ['automatic', 'manual', 'hybrid']:
+                    return jsonify({'error': 'Invalid forecasting mode'}), 400
+                update_fields.append('forecasting_mode = %s')
+                update_values.append(data['forecasting_mode'])
+            
+            if 'manual_reorder_point' in data:
+                update_fields.append('manual_reorder_point = %s')
+                update_values.append(data['manual_reorder_point'])
+            
+            if 'manual_safety_stock' in data:
+                update_fields.append('manual_safety_stock = %s')
+                update_values.append(data['manual_safety_stock'])
+            
+            if 'manual_lead_time_days' in data:
+                if data['manual_lead_time_days'] < 1:
+                    return jsonify({'error': 'Lead time must be at least 1 day'}), 400
+                update_fields.append('manual_lead_time_days = %s')
+                update_values.append(data['manual_lead_time_days'])
+            
+            if 'forecasting_notes' in data:
+                update_fields.append('forecasting_notes = %s')
+                update_values.append(data['forecasting_notes'])
+            
+            if update_fields:
+                update_fields.append('updated_at = NOW()')
+                update_values.append(product_id)
+                query = f"""
+                    UPDATE replenishment_policies 
+                    SET {', '.join(update_fields)}
+                    WHERE product_id = %s
+                """
+                cur.execute(query, update_values)
+        else:
+            # Create new policy
+            cur.execute("""
+                INSERT INTO replenishment_policies (
+                    product_id, forecasting_mode, manual_reorder_point, 
+                    manual_safety_stock, manual_lead_time_days, forecasting_notes
+                ) VALUES (%s, %s, %s, %s, %s, %s)
+            """, (
+                product_id,
+                data.get('forecasting_mode', 'automatic'),
+                data.get('manual_reorder_point'),
+                data.get('manual_safety_stock'),
+                data.get('manual_lead_time_days', 7),
+                data.get('forecasting_notes')
+            ))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({'message': 'Forecasting settings updated successfully'})
         
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1047,6 +1258,202 @@ def api_warehouse_occupied_locations(warehouse_id):
             'warehouse_id': warehouse_id,
             'occupied_locations': occupied_locations
         })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# ============================================================================
+# SUPPLIER MANAGEMENT API ENDPOINTS
+# ============================================================================
+
+@app.route('/api/suppliers', methods=['GET'])
+@login_required
+def get_suppliers():
+    """Get all suppliers"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cur.execute("SELECT * FROM suppliers ORDER BY name")
+        suppliers = cur.fetchall()
+        cur.close()
+        conn.close()
+        return jsonify([dict(s) for s in suppliers])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/suppliers', methods=['POST'])
+@login_required
+def create_supplier():
+    """Create a new supplier"""
+    if current_user.role not in ['admin', 'manager']:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    try:
+        data = request.get_json()
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("""
+            INSERT INTO suppliers (name, contact_person, email, phone, address, website, payment_terms)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            data['name'],
+            data.get('contact_person'),
+            data.get('email'),
+            data.get('phone'),
+            data.get('address'),
+            data.get('website'),
+            data.get('payment_terms')
+        ))
+        
+        supplier_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({'message': 'Supplier created successfully', 'id': supplier_id})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/suppliers/<supplier_id>', methods=['PUT'])
+@login_required
+def update_supplier(supplier_id):
+    """Update a supplier"""
+    if current_user.role not in ['admin', 'manager']:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    try:
+        data = request.get_json()
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("""
+            UPDATE suppliers 
+            SET name = %s, contact_person = %s, email = %s, phone = %s, 
+                address = %s, website = %s, payment_terms = %s
+            WHERE id = %s
+        """, (
+            data['name'],
+            data.get('contact_person'),
+            data.get('email'),
+            data.get('phone'),
+            data.get('address'),
+            data.get('website'),
+            data.get('payment_terms'),
+            supplier_id
+        ))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({'message': 'Supplier updated successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/suppliers/<supplier_id>', methods=['DELETE'])
+@login_required
+def delete_supplier(supplier_id):
+    """Delete a supplier"""
+    if current_user.role not in ['admin', 'manager']:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("DELETE FROM suppliers WHERE id = %s", (supplier_id,))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({'message': 'Supplier deleted successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/product/<product_id>/suppliers', methods=['GET'])
+@login_required
+def get_product_suppliers(product_id):
+    """Get suppliers for a specific product"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cur.execute("""
+            SELECT 
+                ps.*,
+                s.name as supplier_name,
+                s.contact_person,
+                s.email,
+                s.phone
+            FROM product_suppliers ps
+            JOIN suppliers s ON ps.supplier_id = s.id
+            WHERE ps.product_id = %s
+            ORDER BY ps.is_preferred DESC, s.name
+        """, (product_id,))
+        
+        suppliers = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        return jsonify([dict(s) for s in suppliers])
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/product/<product_id>/suppliers', methods=['POST'])
+@login_required
+def add_product_supplier(product_id):
+    """Add a supplier to a product"""
+    if current_user.role not in ['admin', 'manager']:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    try:
+        data = request.get_json()
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("""
+            INSERT INTO product_suppliers (
+                product_id, supplier_id, supplier_sku, unit_cost, 
+                lead_time_days, minimum_order_quantity, is_preferred
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (
+            product_id,
+            data['supplier_id'],
+            data.get('supplier_sku'),
+            data.get('unit_cost'),
+            data.get('lead_time_days'),
+            data.get('minimum_order_quantity'),
+            data.get('is_preferred', False)
+        ))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({'message': 'Supplier added to product successfully'})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/product-supplier/<product_supplier_id>', methods=['DELETE'])
+@login_required
+def remove_product_supplier(product_supplier_id):
+    """Remove a supplier from a product"""
+    if current_user.role not in ['admin', 'manager']:
+        return jsonify({'error': 'Access denied'}), 403
+    
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("DELETE FROM product_suppliers WHERE id = %s", (product_supplier_id,))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({'message': 'Supplier removed from product successfully'})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -1249,7 +1656,7 @@ def edit_product(product_id):
                 if not product_row:
                     flash('Product not found.', 'error')
                     return redirect(url_for('products'))
-                
+            
                 # Convert to dictionary format
                 product = {
                     'id': product_row[0],
@@ -1299,7 +1706,7 @@ def edit_stock(stock_id):
             data = {
                 'product_id': request.form.get('product_id'),
                 'location_id': request.form.get('location_id'),
-                'qty_available': int(request.form.get('qty_available')),
+                'on_hand': int(request.form.get('qty_available')),
                 'qty_reserved': int(request.form.get('qty_reserved'))
             }
             
@@ -1388,73 +1795,116 @@ def edit_warehouse(warehouse_id):
             """, (warehouse_id,))
             occupied_location_ids = {row[0] for row in cur.fetchall()}
             
-            # Parse new aisle configuration
-            if aisles_data:
+            # Parse new hierarchical configuration
+            hierarchical_data = request.form.get('hierarchical_data')
+            if hierarchical_data:
                 try:
-                    aisles = json.loads(aisles_data)
-                    
-                    # Calculate new location IDs based on aisle configuration
-                    new_location_ids = set()
-                    for aisle in aisles:
-                        if aisle.get('existing') and aisle.get('locationIds'):
-                            new_location_ids.update(aisle['locationIds'])
-                    
-                    # Find locations that will be removed
-                    removed_location_ids = current_location_ids - new_location_ids
-                    
-                    # Check if any removed locations are occupied
-                    occupied_removed = removed_location_ids & occupied_location_ids
-                    if occupied_removed:
-                        # Get location details for error message
-                        cur.execute("SELECT aisle, bin FROM locations WHERE id = ANY(%s)", (list(occupied_removed),))
-                        occupied_locations = cur.fetchall()
-                        location_names = [f"{loc[0]}{loc[1]}" for loc in occupied_locations]
-                        
-                        error_msg = f"Cannot remove occupied locations: {', '.join(location_names)}. Please move or remove the stock items first."
-                        cur.close()
-                        conn.close()
-                        
-                        if is_modal:
-                            return f'<div class="alert alert-danger">{error_msg}</div>'
-                        else:
-                            flash(error_msg, 'error')
-                            return redirect(url_for('warehouses'))
+                    hierarchical_structure = json.loads(hierarchical_data)
                     
                     # Update warehouse name and address
                     cur.execute("UPDATE warehouses SET name = %s, address = %s WHERE id = %s", 
                                (name, address, warehouse_id))
                     
-                    # Remove locations that are no longer needed
-                    locations_to_remove = current_location_ids - new_location_ids
-                    if locations_to_remove:
-                        # Use a different approach for UUID deletion - convert to proper UUID array
-                        location_ids_list = list(locations_to_remove)
-                        # Create a proper UUID array for PostgreSQL
-                        uuid_array = "ARRAY[" + ",".join([f"'{loc_id}'::uuid" for loc_id in location_ids_list]) + "]"
-                        cur.execute(f"DELETE FROM locations WHERE id = ANY({uuid_array})")
+                    # Get current locations to check for occupied ones
+                    cur.execute("SELECT id, full_code FROM locations WHERE warehouse_id = %s", (warehouse_id,))
+                    current_locations = cur.fetchall()
+                    current_location_ids = {loc[0] for loc in current_locations}
+                    current_location_codes = {loc[1] for loc in current_locations}
                     
-                    # Add new locations based on aisle configuration
-                    for aisle in aisles:
-                        aisle_name = aisle['name']
-                        bin_count = aisle['bins']
+                    # Get occupied locations (locations with bins that have stock)
+                    cur.execute("""
+                        SELECT DISTINCT l.id 
+                        FROM locations l
+                        JOIN bins b ON l.id = b.location_id
+                        JOIN stock_items si ON b.id = si.bin_id
+                        WHERE l.warehouse_id = %s AND si.on_hand > 0
+                    """, (warehouse_id,))
+                    occupied_location_ids = {row[0] for row in cur.fetchall()}
+                    
+                    # Calculate new location codes from hierarchical structure
+                    new_location_codes = set()
+                    for area_code, area in hierarchical_structure.items():
+                        for rack_code, rack in area['racks'].items():
+                            for level_code, level in rack['levels'].items():
+                                # Generate full_code: A2F10 (Area2, RackF, Level10)
+                                # Convert rack_code from R01 format to letter (R01->A, R02->B, etc.)
+                                rack_letter = chr(ord('A') + int(rack_code.replace('R', '')) - 1) if rack_code.startswith('R') else rack_code
+                                # Extract area number from A01 format
+                                area_number = area_code.replace('A', '') if area_code.startswith('A') else area_code
+                                # Extract level number from L1 format
+                                level_number = level_code.replace('L', '') if level_code.startswith('L') else level_code
+                                full_code = f"A{area_number}{rack_letter}{level_number}"
+                                new_location_codes.add(full_code)
+                    
+                    # Find locations that will be removed
+                    removed_location_codes = current_location_codes - new_location_codes
+                    
+                    # Check if any removed locations are occupied
+                    if removed_location_codes:
+                        cur.execute("SELECT id, full_code FROM locations WHERE full_code = ANY(%s)", (list(removed_location_codes),))
+                        removed_locations = cur.fetchall()
+                        removed_location_ids = {loc[0] for loc in removed_locations}
+                        occupied_removed = removed_location_ids & occupied_location_ids
                         
-                        # Check if this aisle already exists
-                        existing_bins = []
-                        if aisle.get('existing'):
-                            cur.execute("SELECT bin FROM locations WHERE warehouse_id = %s AND aisle = %s", 
-                                       (warehouse_id, aisle_name))
-                            existing_bins = [row[0] for row in cur.fetchall()]
-                        
-                        # Add missing bins
-                        for bin_num in range(1, bin_count + 1):
-                            if str(bin_num) not in existing_bins:
-                                cur.execute("INSERT INTO locations (warehouse_id, aisle, bin) VALUES (%s, %s, %s)", 
-                                           (warehouse_id, aisle_name, str(bin_num)))
+                        if occupied_removed:
+                            # Get details of occupied locations
+                            cur.execute("""
+                                SELECT l.full_code, COUNT(si.id) as stock_count
+                                FROM locations l
+                                JOIN bins b ON l.id = b.location_id
+                                JOIN stock_items si ON b.id = si.bin_id
+                                WHERE l.id = ANY(%s) AND si.on_hand > 0
+                                GROUP BY l.id, l.full_code
+                            """, (list(occupied_removed),))
+                            occupied_details = cur.fetchall()
+                            
+                            error_msg = f"Cannot remove occupied locations. The following locations have stock items: " + \
+                                      ", ".join([f"{loc[0]} ({loc[1]} items)" for loc in occupied_details]) + \
+                                      ". Please move or remove the stock items first."
+                            cur.close()
+                            conn.close()
+                            
+                            if is_modal:
+                                return f'<div class="alert alert-danger">{error_msg}</div>'
+                            else:
+                                flash(error_msg, 'error')
+                                return redirect(url_for('warehouses'))
+                    
+                    # Remove locations that are no longer needed
+                    if removed_location_codes:
+                        cur.execute("DELETE FROM locations WHERE full_code = ANY(%s)", (list(removed_location_codes),))
+                    
+                    # Add/update locations based on hierarchical structure
+                    for area_code, area in hierarchical_structure.items():
+                        for rack_code, rack in area['racks'].items():
+                            for level_code, level in rack['levels'].items():
+                                # Generate full_code: A2F10 (Area2, RackF, Level10)
+                                # Convert rack_code from R01 format to letter (R01->A, R02->B, etc.)
+                                rack_letter = chr(ord('A') + int(rack_code.replace('R', '')) - 1) if rack_code.startswith('R') else rack_code
+                                # Extract area number from A01 format
+                                area_number = area_code.replace('A', '') if area_code.startswith('A') else area_code
+                                # Extract level number from L1 format
+                                level_number = level_code.replace('L', '') if level_code.startswith('L') else level_code
+                                full_code = f"A{area_number}{rack_letter}{level_number}"
+                                
+                                # Check if location already exists
+                                cur.execute("SELECT id FROM locations WHERE full_code = %s AND warehouse_id = %s", 
+                                           (full_code, warehouse_id))
+                                existing_location = cur.fetchone()
+                                
+                                if existing_location:
+                                    # Update existing location
+                                    cur.execute("UPDATE locations SET full_code = %s WHERE id = %s", 
+                                               (full_code, existing_location[0]))
+                                else:
+                                    # Create new location
+                                    cur.execute("INSERT INTO locations (warehouse_id, full_code) VALUES (%s, %s) RETURNING id", 
+                                               (warehouse_id, full_code))
                     
                     conn.commit()
                     
                 except (json.JSONDecodeError, KeyError, TypeError) as e:
-                    error_msg = f"Error parsing aisle data: {e}"
+                    error_msg = f"Error parsing hierarchical data: {e}"
                     cur.close()
                     conn.close()
                     
@@ -1464,7 +1914,7 @@ def edit_warehouse(warehouse_id):
                         flash(error_msg, 'error')
                         return redirect(url_for('warehouses'))
             else:
-                # Just update name and address if no aisle data provided
+                # Just update name and address if no hierarchical data provided
                 cur.execute("UPDATE warehouses SET name = %s, address = %s WHERE id = %s", 
                            (name, address, warehouse_id))
                 conn.commit()
@@ -1577,7 +2027,13 @@ def delete_stock(stock_id):
 @app.route('/delete/warehouse/<warehouse_id>', methods=['POST'])
 @login_required
 def delete_warehouse(warehouse_id):
-    """Delete warehouse"""
+    """Delete warehouse with new logic:
+    1. Collect all descendant locations of the warehouse
+    2. Find all bins currently assigned to those locations
+    3. Check if those bins contain stock:
+       - If yes → abort with a warning (warehouse not empty)
+       - If no → Delete the locations and set bin.location_id = NULL (bins become "floating")
+    """
     if current_user.role not in ['admin', 'manager']:
         flash('Access denied. Management privileges required.', 'error')
         return redirect(url_for('warehouses'))
@@ -1586,29 +2042,94 @@ def delete_warehouse(warehouse_id):
         conn = get_db_connection()
         cur = conn.cursor()
         
-        # Check if warehouse has any stock items
+        # Step 1: Collect all descendant locations of the warehouse
         cur.execute("""
-            SELECT COUNT(*) FROM stock_items si
-            JOIN locations l ON si.location_id = l.id
-            WHERE l.warehouse_id = %s
+            SELECT id, full_code FROM locations 
+            WHERE warehouse_id = %s
         """, (warehouse_id,))
+        warehouse_locations = cur.fetchall()
         
-        stock_count = cur.fetchone()[0]
-        
-        if stock_count > 0:
-            flash(f'Cannot delete warehouse: {stock_count} stock items are still located in this warehouse. Please move or delete the stock items first.', 'error')
-        else:
-            # Delete all locations first (due to foreign key constraints)
-            cur.execute("DELETE FROM locations WHERE warehouse_id = %s", (warehouse_id,))
-            
-            # Delete the warehouse
+        if not warehouse_locations:
+            # No locations found, just delete the warehouse
             cur.execute("DELETE FROM warehouses WHERE id = %s", (warehouse_id,))
-            
             if cur.rowcount == 0:
                 flash('Warehouse not found.', 'error')
             else:
                 conn.commit()
-        flash('Warehouse deleted successfully!', 'success')
+                flash('Warehouse deleted successfully!', 'success')
+            cur.close()
+            conn.close()
+            return redirect(url_for('warehouses'))
+        
+        location_ids = [loc[0] for loc in warehouse_locations]
+        
+        # Step 2: Find all bins currently assigned to those locations
+        cur.execute("""
+            SELECT b.id, b.code, l.full_code 
+            FROM bins b
+            JOIN locations l ON b.location_id = l.id
+            WHERE b.location_id = ANY(%s::uuid[])
+        """, (location_ids,))
+        assigned_bins = cur.fetchall()
+        
+        # Step 3: Check if those bins contain stock
+        if assigned_bins:
+            bin_ids = [bin[0] for bin in assigned_bins]
+            cur.execute("""
+                SELECT COUNT(*) FROM stock_items 
+                WHERE bin_id = ANY(%s::uuid[]) AND on_hand > 0
+            """, (bin_ids,))
+            stock_count = cur.fetchone()[0]
+            
+            if stock_count > 0:
+                # Get detailed information about occupied bins for better error message
+                cur.execute("""
+                    SELECT b.code, l.full_code, si.on_hand, p.name
+                    FROM stock_items si
+                    JOIN bins b ON si.bin_id = b.id
+                    JOIN locations l ON b.location_id = l.id
+                    JOIN products p ON si.product_id = p.id
+                    WHERE si.bin_id = ANY(%s::uuid[]) AND si.on_hand > 0
+                    ORDER BY l.full_code, b.code
+                """, (bin_ids,))
+                occupied_bins_details = cur.fetchall()
+                
+                # Build detailed error message
+                error_msg = f"Cannot delete warehouse: {stock_count} stock items are still located in this warehouse.\n\nOccupied locations:\n"
+                for bin_code, location_code, qty, product_name in occupied_bins_details:
+                    error_msg += f"• Location {location_code}, Bin {bin_code}: {qty} units of {product_name}\n"
+                
+                flash(error_msg, 'error')
+                cur.close()
+                conn.close()
+                return redirect(url_for('warehouses'))
+        
+        # Step 4: If no stock found, proceed with deletion
+        # First, set all bins to "floating" (location_id = NULL)
+        if assigned_bins:
+            cur.execute("""
+                UPDATE bins 
+                SET location_id = NULL 
+                WHERE location_id = ANY(%s::uuid[])
+            """, (location_ids,))
+            bins_updated = cur.rowcount
+        
+        # Delete all locations
+        cur.execute("DELETE FROM locations WHERE warehouse_id = %s", (warehouse_id,))
+        locations_deleted = cur.rowcount
+        
+        # Delete the warehouse
+        cur.execute("DELETE FROM warehouses WHERE id = %s", (warehouse_id,))
+        warehouse_deleted = cur.rowcount
+        
+        if warehouse_deleted == 0:
+            flash('Warehouse not found.', 'error')
+        else:
+            conn.commit()
+            success_msg = f"Warehouse deleted successfully!"
+            if bins_updated > 0:
+                success_msg += f" {bins_updated} bin(s) are now floating and available for reassignment."
+            flash(success_msg, 'success')
         
         cur.close()
         conn.close()
@@ -1756,33 +2277,33 @@ def add_warehouse():
                        (warehouse_data['name'], warehouse_data['address']))
             warehouse_id = cur.fetchone()[0]
             
-            # Create locations based on the new aisle data format
-            aisles_data = request.form.get('aisles_data')
-            if aisles_data:
+            # Create locations based on the new hierarchical data format
+            hierarchical_data = request.form.get('hierarchical_data')
+            if hierarchical_data:
                 try:
-                    aisles = json.loads(aisles_data)
-                    for aisle in aisles:
-                        aisle_name = aisle['name']
-                        bin_count = aisle['bins']
-                        
-                        # Create bins for this aisle
-                        for bin_num in range(1, bin_count + 1):
-                            cur.execute("INSERT INTO locations (warehouse_id, aisle, bin) VALUES (%s, %s, %s)", 
-                                       (warehouse_id, aisle_name, str(bin_num)))
+                    hierarchical_structure = json.loads(hierarchical_data)
+                    
+                    # Create locations based on hierarchical structure
+                    for area_code, area in hierarchical_structure.items():
+                        for rack_code, rack in area['racks'].items():
+                            for level_code, level in rack['levels'].items():
+                                # Generate full_code: A2F10 (Area2, RackF, Level10)
+                                # Convert rack_code from R01 format to letter (R01->A, R02->B, etc.)
+                                rack_letter = chr(ord('A') + int(rack_code.replace('R', '')) - 1) if rack_code.startswith('R') else rack_code
+                                # Extract area number from A01 format
+                                area_number = area_code.replace('A', '') if area_code.startswith('A') else area_code
+                                # Extract level number from L1 format
+                                level_number = level_code.replace('L', '') if level_code.startswith('L') else level_code
+                                full_code = f"A{area_number}{rack_letter}{level_number}"
+                                cur.execute("INSERT INTO locations (warehouse_id, full_code) VALUES (%s, %s)", 
+                                           (warehouse_id, full_code))
                     
                     conn.commit()
                 except (json.JSONDecodeError, KeyError, TypeError) as e:
-                    print(f"Error parsing aisles data: {e}")
-                    # Fallback to old format if new format fails
-                sample_aisles = request.form.get('sample_aisles', 'A,B').split(',')
-                sample_bins = int(request.form.get('sample_bins', 3))
-                
-                for aisle in sample_aisles:
-                    aisle = aisle.strip()
-                    if aisle:
-                            for bin_num in range(1, min(sample_bins + 1, 21)):
-                                cur.execute("INSERT INTO locations (warehouse_id, aisle, bin) VALUES (%s, %s, %s)", 
-                                           (warehouse_id, aisle, str(bin_num)))
+                    print(f"Error parsing hierarchical data: {e}")
+                    # Fallback to simple structure if hierarchical format fails
+                    cur.execute("INSERT INTO locations (warehouse_id, full_code) VALUES (%s, %s)", 
+                               (warehouse_id, 'A1A1'))
                     conn.commit()
             
             cur.close()
@@ -1808,6 +2329,912 @@ def add_warehouse():
         else:
             flash(error_msg, 'error')
             return redirect(url_for('warehouses'))
+
+@app.route('/transactions')
+@login_required
+def transactions():
+    """Stock transactions page"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Get transactions with related data
+        cur.execute("""
+            SELECT 
+                st.id,
+                st.transaction_type,
+                st.quantity_change,
+                st.quantity_before,
+                st.quantity_after,
+                st.notes,
+                st.created_at,
+                st.reference_id,
+                p.sku,
+                p.name as product_name,
+                b.code as bin_code,
+                w.name as warehouse_name,
+                l.full_code,
+                u.username as user_name
+            FROM stock_transactions st
+            LEFT JOIN stock_items si ON st.stock_item_id = si.id
+            LEFT JOIN products p ON si.product_id = p.id
+            LEFT JOIN bins b ON si.bin_id = b.id
+            LEFT JOIN locations l ON b.location_id = l.id
+            LEFT JOIN warehouses w ON l.warehouse_id = w.id
+            LEFT JOIN users u ON st.user_id = u.id
+            ORDER BY st.created_at DESC
+        """)
+        
+        transactions = cur.fetchall()
+        
+        # Get summary statistics
+        cur.execute("""
+            SELECT 
+                COUNT(*) as total_transactions,
+                COUNT(DISTINCT st.stock_item_id) as unique_stock_items,
+                COUNT(DISTINCT p.id) as unique_products,
+                SUM(CASE WHEN st.transaction_type = 'receive' THEN st.quantity_change ELSE 0 END) as total_received,
+                SUM(CASE WHEN st.transaction_type = 'ship' THEN ABS(st.quantity_change) ELSE 0 END) as total_shipped,
+                SUM(CASE WHEN st.transaction_type = 'adjust' THEN st.quantity_change ELSE 0 END) as total_adjusted
+            FROM stock_transactions st
+            LEFT JOIN stock_items si ON st.stock_item_id = si.id
+            LEFT JOIN products p ON si.product_id = p.id
+        """)
+        
+        stats = cur.fetchone()
+        
+        cur.close()
+        conn.close()
+        
+        return render_template('transactions.html', 
+                             transactions=transactions, 
+                             stats=stats)
+                             
+    except Exception as e:
+        print(f"Error loading transactions: {e}")
+        flash('Error loading transactions', 'error')
+        return redirect(url_for('dashboard'))
+
+@app.route('/api/transactions', methods=['GET'])
+@login_required
+def api_transactions():
+    """Get transactions with filtering and pagination"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Get query parameters
+        page = request.args.get('page', 1, type=int)
+        per_page = request.args.get('per_page', 25, type=int)
+        transaction_type = request.args.get('type', '')
+        product_id = request.args.get('product_id', '')
+        warehouse_id = request.args.get('warehouse_id', '')
+        date_from = request.args.get('date_from', '')
+        date_to = request.args.get('date_to', '')
+        
+        # Build WHERE clause
+        where_conditions = []
+        params = []
+        
+        if transaction_type:
+            where_conditions.append("st.transaction_type = %s")
+            params.append(transaction_type)
+        
+        if product_id:
+            where_conditions.append("p.id = %s")
+            params.append(product_id)
+        
+        if warehouse_id:
+            where_conditions.append("w.id = %s")
+            params.append(warehouse_id)
+        
+        if date_from:
+            where_conditions.append("st.created_at >= %s")
+            params.append(date_from)
+        
+        if date_to:
+            where_conditions.append("st.created_at <= %s")
+            params.append(date_to)
+        
+        where_clause = " WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+        
+        # Get total count
+        count_query = f"""
+            SELECT COUNT(*)
+            FROM stock_transactions st
+            LEFT JOIN stock_items si ON st.stock_item_id = si.id
+            LEFT JOIN products p ON si.product_id = p.id
+            LEFT JOIN bins b ON si.bin_id = b.id
+            LEFT JOIN locations l ON b.location_id = l.id
+            LEFT JOIN warehouses w ON l.warehouse_id = w.id
+            {where_clause}
+        """
+        cur.execute(count_query, params)
+        total_count = cur.fetchone()['count']
+        
+        # Get paginated results
+        offset = (page - 1) * per_page
+        query = f"""
+            SELECT 
+                st.id,
+                st.transaction_type,
+                st.quantity_change,
+                st.quantity_before,
+                st.quantity_after,
+                st.notes,
+                st.created_at,
+                st.reference_id,
+                p.sku,
+                p.name as product_name,
+                p.id as product_id,
+                b.code as bin_code,
+                w.name as warehouse_name,
+                w.id as warehouse_id,
+                l.full_code,
+                u.username as user_name
+            FROM stock_transactions st
+            LEFT JOIN stock_items si ON st.stock_item_id = si.id
+            LEFT JOIN products p ON si.product_id = p.id
+            LEFT JOIN bins b ON si.bin_id = b.id
+            LEFT JOIN locations l ON b.location_id = l.id
+            LEFT JOIN warehouses w ON l.warehouse_id = w.id
+            LEFT JOIN users u ON st.user_id = u.id
+            {where_clause}
+            ORDER BY st.created_at DESC
+            LIMIT %s OFFSET %s
+        """
+        cur.execute(query, params + [per_page, offset])
+        transactions = cur.fetchall()
+        
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'transactions': [dict(t) for t in transactions],
+            'pagination': {
+                'page': page,
+                'per_page': per_page,
+                'total': total_count,
+                'pages': (total_count + per_page - 1) // per_page
+            }
+        })
+        
+    except Exception as e:
+        print(f"Error fetching transactions: {e}")
+        return jsonify({'error': 'Failed to fetch transactions'}), 500
+
+@app.route('/api/transactions/<transaction_id>', methods=['GET'])
+@login_required
+def api_transaction_detail(transaction_id):
+    """Get detailed information about a specific transaction"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cur.execute("""
+            SELECT 
+                st.*,
+                p.sku,
+                p.name as product_name,
+                p.description as product_description,
+                b.code as bin_code,
+                w.name as warehouse_name,
+                l.full_code,
+                u.username as user_name,
+                u.role as user_role
+            FROM stock_transactions st
+            LEFT JOIN stock_items si ON st.stock_item_id = si.id
+            LEFT JOIN products p ON si.product_id = p.id
+            LEFT JOIN bins b ON si.bin_id = b.id
+            LEFT JOIN locations l ON b.location_id = l.id
+            LEFT JOIN warehouses w ON l.warehouse_id = w.id
+            LEFT JOIN users u ON st.user_id = u.id
+            WHERE st.id = %s
+        """, (transaction_id,))
+        
+        transaction = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if not transaction:
+            return jsonify({'error': 'Transaction not found'}), 404
+        
+        return jsonify(dict(transaction))
+        
+    except Exception as e:
+        print(f"Error fetching transaction detail: {e}")
+        return jsonify({'error': 'Failed to fetch transaction detail'}), 500
+
+@app.route('/api/transactions', methods=['POST'])
+@login_required
+def api_create_transaction():
+    """Create a new stock transaction"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['stock_item_id', 'transaction_type', 'quantity_change', 'notes']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        # Validate transaction type
+        valid_types = ['receive', 'ship', 'adjust', 'transfer', 'reserve', 'release']
+        if data['transaction_type'] not in valid_types:
+            return jsonify({'error': f'Invalid transaction type. Must be one of: {", ".join(valid_types)}'}), 400
+        
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        # Get current stock levels
+        cur.execute("""
+            SELECT on_hand, qty_reserved 
+            FROM stock_items 
+            WHERE id = %s
+        """, (data['stock_item_id'],))
+        
+        stock_item = cur.fetchone()
+        if not stock_item:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Stock item not found'}), 404
+        
+        quantity_before = stock_item['on_hand']
+        quantity_after = quantity_before + data['quantity_change']
+        
+        # Validate stock levels for outgoing transactions
+        if data['transaction_type'] in ['ship', 'transfer'] and quantity_after < 0:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Insufficient stock for this transaction'}), 400
+        
+        # Update stock levels
+        cur.execute("""
+            UPDATE stock_items 
+            SET on_hand = %s 
+            WHERE id = %s
+        """, (quantity_after, data['stock_item_id']))
+        
+        # Create transaction record
+        cur.execute("""
+            INSERT INTO stock_transactions 
+            (stock_item_id, transaction_type, quantity_change, quantity_before, quantity_after, notes, user_id, reference_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            data['stock_item_id'],
+            data['transaction_type'],
+            data['quantity_change'],
+            quantity_before,
+            quantity_after,
+            data['notes'],
+            current_user.id,
+            data.get('reference_id')
+        ))
+        
+        transaction_id = cur.fetchone()['id']
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'message': 'Transaction created successfully',
+            'transaction_id': transaction_id,
+            'quantity_before': quantity_before,
+            'quantity_after': quantity_after
+        }), 201
+        
+    except Exception as e:
+        print(f"Error creating transaction: {e}")
+        return jsonify({'error': 'Failed to create transaction'}), 500
+
+@app.route('/api/stock-items', methods=['GET'])
+@login_required
+def api_stock_items():
+    """Get stock items for transaction form"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cur.execute("""
+            SELECT 
+                si.id,
+                si.on_hand,
+                si.qty_reserved,
+                p.sku,
+                p.name as product_name,
+                b.code as bin_code,
+                w.name as warehouse_name,
+                l.full_code
+            FROM stock_items si
+            LEFT JOIN products p ON si.product_id = p.id
+            LEFT JOIN bins b ON si.bin_id = b.id
+            LEFT JOIN locations l ON b.location_id = l.id
+            LEFT JOIN warehouses w ON l.warehouse_id = w.id
+            ORDER BY p.name, w.name, l.full_code
+        """)
+        
+        stock_items = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'stock_items': [dict(item) for item in stock_items]
+        })
+        
+    except Exception as e:
+        print(f"Error fetching stock items: {e}")
+        return jsonify({'error': 'Failed to fetch stock items'}), 500
+
+@app.route('/api/warehouses', methods=['GET'])
+@login_required
+def api_warehouses():
+    """Get warehouses for filter dropdown"""
+    try:
+        conn = get_db_connection()
+        cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        
+        cur.execute("""
+            SELECT id, name, address
+            FROM warehouses
+            ORDER BY name
+        """)
+        
+        warehouses = cur.fetchall()
+        cur.close()
+        conn.close()
+        
+        return jsonify({
+            'warehouses': [dict(warehouse) for warehouse in warehouses]
+        })
+        
+    except Exception as e:
+        print(f"Error fetching warehouses: {e}")
+        return jsonify({'error': 'Failed to fetch warehouses'}), 500
+
+@app.route('/scanner')
+@login_required
+def scanner():
+    """Barcode scanner interface for warehouse operations"""
+    return render_template('scanner.html')
+
+@app.route('/api/location/<location_code>', methods=['GET'])
+@login_required
+def api_location_details(location_code):
+    """API endpoint to get location details and associated stock items"""
+    try:
+        # Parse hierarchical location code (e.g., W1-A01-R01-L1-B01)
+        if not location_code or '-' not in location_code:
+            return jsonify({'error': 'Invalid location code format. Expected format: W1-A01-R01-L1-B01'}), 400
+        
+        # Get location details and associated stock items
+        cur = get_db_connection().cursor()
+        
+        # Find the location using the new hierarchical structure
+        cur.execute("""
+            SELECT l.id, l.full_code, l.warehouse_code, l.area_code, l.rack_code, l.level_number, l.bin_number,
+                   l.warehouse_id, w.name as warehouse_name, w.address as warehouse_address
+            FROM locations l
+            JOIN warehouses w ON l.warehouse_id = w.id
+            WHERE l.full_code = %s
+        """, (location_code,))
+        
+        location_result = cur.fetchone()
+        if not location_result:
+            return jsonify({'error': f'Location {location_code} not found'}), 404
+        
+        location_id, full_code, warehouse_code, area_code, rack_code, level_number, bin_number, warehouse_id, warehouse_name, warehouse_address = location_result
+        
+        # Get stock items at this location (via bins)
+        cur.execute("""
+            SELECT 
+                si.id,
+                si.on_hand,
+                si.qty_reserved,
+                si.batch_id,
+                si.expiry_date,
+                p.id as product_id,
+                p.name as product_name,
+                p.sku,
+                p.barcode,
+                p.description,
+                p.batch_tracked,
+                b.code as bin_code
+            FROM stock_items si
+            JOIN products p ON si.product_id = p.id
+            JOIN bins b ON si.bin_id = b.id
+            WHERE b.location_id = %s
+            ORDER BY p.name
+        """, (location_id,))
+        
+        stock_items = []
+        for row in cur.fetchall():
+            stock_items.append({
+                'id': row[0],
+                'qty_available': row[1],
+                'qty_reserved': row[2],
+                'batch_id': row[3],
+                'expiry_date': row[4].isoformat() if row[4] else None,
+                'product_id': row[5],
+                'product_name': row[6],
+                'sku': row[7],
+                'barcode': row[8],
+                'description': row[9],
+                'batch_tracked': row[10],
+                'bin_code': row[11],
+                'total_qty': row[1] + row[2]
+            })
+        
+        cur.close()
+        
+        return jsonify({
+            'location': {
+                'id': location_id,
+                'code': full_code,
+                'warehouse_code': warehouse_code,
+                'area_code': area_code,
+                'rack_code': rack_code,
+                'level_number': level_number,
+                'bin_number': bin_number,
+                'warehouse_id': warehouse_id,
+                'warehouse_name': warehouse_name,
+                'warehouse_address': warehouse_address
+            },
+            'stock_items': stock_items,
+            'total_items': len(stock_items)
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/scanner/transaction', methods=['POST'])
+@login_required
+def api_scanner_transaction():
+    """API endpoint to create a transaction from scanner operations"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['stock_item_id', 'transaction_type', 'quantity_change', 'notes']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        stock_item_id = data['stock_item_id']
+        transaction_type = data['transaction_type']
+        quantity_change = data['quantity_change']
+        notes = data['notes']
+        
+        # Validate transaction type
+        valid_types = ['receive', 'ship', 'adjust', 'transfer', 'reserve', 'release']
+        if transaction_type not in valid_types:
+            return jsonify({'error': f'Invalid transaction type. Must be one of: {", ".join(valid_types)}'}), 400
+        
+        # Validate quantity change
+        if not isinstance(quantity_change, (int, float)) or quantity_change == 0:
+            return jsonify({'error': 'Quantity change must be a non-zero number'}), 400
+        
+        # Get current stock item details
+        cur = get_db_connection().cursor()
+        cur.execute("""
+            SELECT si.on_hand, si.qty_reserved, p.name as product_name, p.sku
+            FROM stock_items si
+            JOIN products p ON si.product_id = p.id
+            WHERE si.id = %s
+        """, (stock_item_id,))
+        
+        stock_result = cur.fetchone()
+        if not stock_result:
+            return jsonify({'error': 'Stock item not found'}), 404
+        
+        current_available, current_reserved, product_name, sku = stock_result
+        
+        # Calculate new quantities based on transaction type
+        new_available = current_available
+        new_reserved = current_reserved
+        
+        if transaction_type == 'receive':
+            new_available += quantity_change
+        elif transaction_type == 'ship':
+            if current_available < quantity_change:
+                return jsonify({'error': f'Insufficient available stock. Available: {current_available}, Requested: {quantity_change}'}), 400
+            new_available -= quantity_change
+        elif transaction_type == 'adjust':
+            new_available += quantity_change
+        elif transaction_type == 'reserve':
+            if current_available < quantity_change:
+                return jsonify({'error': f'Insufficient available stock to reserve. Available: {current_available}, Requested: {quantity_change}'}), 400
+            new_available -= quantity_change
+            new_reserved += quantity_change
+        elif transaction_type == 'release':
+            if current_reserved < quantity_change:
+                return jsonify({'error': f'Insufficient reserved stock to release. Reserved: {current_reserved}, Requested: {quantity_change}'}), 400
+            new_reserved -= quantity_change
+            new_available += quantity_change
+        elif transaction_type == 'transfer':
+            # For transfers, we assume it's moving from available to reserved or vice versa
+            if quantity_change > 0:  # Moving to reserved
+                if current_available < quantity_change:
+                    return jsonify({'error': f'Insufficient available stock for transfer. Available: {current_available}, Requested: {quantity_change}'}), 400
+                new_available -= quantity_change
+                new_reserved += quantity_change
+            else:  # Moving from reserved to available
+                quantity_change = abs(quantity_change)
+                if current_reserved < quantity_change:
+                    return jsonify({'error': f'Insufficient reserved stock for transfer. Reserved: {current_reserved}, Requested: {quantity_change}'}), 400
+                new_reserved -= quantity_change
+                new_available += quantity_change
+        
+        # Ensure quantities don't go negative
+        if new_available < 0 or new_reserved < 0:
+            return jsonify({'error': 'Transaction would result in negative stock quantities'}), 400
+        
+        # Update stock item
+        cur.execute("""
+            UPDATE stock_items 
+            SET on_hand = %s, qty_reserved = %s
+            WHERE id = %s
+        """, (new_available, new_reserved, stock_item_id))
+        
+        # Create transaction record
+        cur.execute("""
+            INSERT INTO stock_transactions 
+            (stock_item_id, transaction_type, quantity_change, quantity_before, quantity_after, notes, user_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            stock_item_id,
+            transaction_type,
+            quantity_change,
+            current_available + current_reserved,
+            new_available + new_reserved,
+            notes,
+            current_user.id
+        ))
+        
+        transaction_id = cur.fetchone()[0]
+        
+        # Commit transaction
+        cur.connection.commit()
+        cur.close()
+        
+        return jsonify({
+            'success': True,
+            'transaction_id': transaction_id,
+            'stock_item': {
+                'id': stock_item_id,
+                'product_name': product_name,
+                'sku': sku,
+                'new_available': new_available,
+                'new_reserved': new_reserved,
+                'new_total': new_available + new_reserved
+            },
+            'transaction': {
+                'type': transaction_type,
+                'quantity_change': quantity_change,
+                'notes': notes
+            }
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/bin/<bin_code>', methods=['GET'])
+@login_required
+def api_bin_details(bin_code):
+    """API endpoint to get bin details and associated stock items"""
+    try:
+        # Validate bin code format (B followed by numbers)
+        if not bin_code or not bin_code.startswith('B') or not bin_code[1:].isdigit():
+            return jsonify({'error': 'Invalid bin code format. Expected format: B followed by numbers (e.g., B0045)'}), 400
+        
+        # Get bin details and associated stock items
+        cur = get_db_connection().cursor()
+        
+        # Find the bin and its location
+        cur.execute("""
+            SELECT 
+                b.id as bin_id,
+                b.code as bin_code,
+                b.location_id,
+                l.full_code as location_code,
+                w.id as warehouse_id,
+                w.name as warehouse_name,
+                w.code as warehouse_code,
+                w.address as warehouse_address
+            FROM bins b
+            LEFT JOIN locations l ON b.location_id = l.id
+            LEFT JOIN warehouses w ON l.warehouse_id = w.id
+            WHERE b.code = %s
+        """, (bin_code,))
+        
+        bin_result = cur.fetchone()
+        if not bin_result:
+            return jsonify({'error': f'Bin {bin_code} not found'}), 404
+        
+        bin_id, bin_code, location_id, location_code, warehouse_id, warehouse_name, warehouse_code, warehouse_address = bin_result
+        
+        # Check if this bin has any stock items
+        cur.execute("""
+            SELECT 
+                si.id,
+                si.on_hand,
+                si.qty_reserved,
+                si.batch_id,
+                si.expiry_date,
+                p.id as product_id,
+                p.name as product_name,
+                p.sku,
+                p.barcode,
+                p.description,
+                p.batch_tracked
+            FROM stock_items si
+            JOIN products p ON si.product_id = p.id
+            WHERE si.bin_id = %s
+            ORDER BY p.name
+        """, (bin_id,))
+        
+        stock_items = []
+        for row in cur.fetchall():
+            stock_items.append({
+                'id': row[0],
+                'qty_available': row[1],
+                'qty_reserved': row[2],
+                'batch_id': row[3],
+                'expiry_date': row[4].isoformat() if row[4] else None,
+                'product_id': row[5],
+                'product_name': row[6],
+                'sku': row[7],
+                'barcode': row[8],
+                'description': row[9],
+                'batch_tracked': row[10],
+                'total_qty': row[1] + row[2]
+            })
+        
+        cur.close()
+        
+        return jsonify({
+            'bin': {
+                'id': bin_id,
+                'code': bin_code,
+                'location_id': location_id,
+                'location_code': location_code,
+                'warehouse_id': warehouse_id,
+                'warehouse_name': warehouse_name,
+                'warehouse_code': warehouse_code,
+                'warehouse_address': warehouse_address
+            },
+            'stock_items': stock_items,
+            'total_items': len(stock_items),
+            'has_stock': len(stock_items) > 0
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/bin/<bin_code>/assign-stock', methods=['POST'])
+@login_required
+def api_assign_stock_to_bin(bin_code):
+    """API endpoint to assign a stock item to a bin"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        required_fields = ['product_id', 'quantity', 'batch_id']
+        for field in required_fields:
+            if field not in data:
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
+        product_id = data['product_id']
+        quantity = data['quantity']
+        batch_id = data.get('batch_id')
+        expiry_date = data.get('expiry_date')
+        
+        # Validate quantity
+        if not isinstance(quantity, (int, float)) or quantity <= 0:
+            return jsonify({'error': 'Quantity must be a positive number'}), 400
+        
+        cur = get_db_connection().cursor()
+        
+        # Check if bin exists
+        cur.execute("SELECT id FROM bins WHERE code = %s", (bin_code,))
+        bin_result = cur.fetchone()
+        if not bin_result:
+            return jsonify({'error': f'Bin {bin_code} not found'}), 404
+        
+        bin_id = bin_result[0]
+        
+        # Check if product exists
+        cur.execute("SELECT id, name FROM products WHERE id = %s", (product_id,))
+        product_result = cur.fetchone()
+        if not product_result:
+            return jsonify({'error': 'Product not found'}), 404
+        
+        product_name = product_result[1]
+        
+        # Check if bin already has stock items
+        cur.execute("SELECT COUNT(*) FROM stock_items WHERE bin_id = %s", (bin_id,))
+        existing_count = cur.fetchone()[0]
+        
+        if existing_count > 0:
+            return jsonify({'error': f'Bin {bin_code} already has stock items assigned. Please use a different bin or move existing items first.'}), 400
+        
+        # Create new stock item
+        cur.execute("""
+            INSERT INTO stock_items 
+            (product_id, bin_id, on_hand, qty_reserved, batch_id, expiry_date, received_date)
+            VALUES (%s, %s, %s, 0, %s, %s, NOW())
+            RETURNING id
+        """, (product_id, bin_id, quantity, batch_id, expiry_date))
+        
+        stock_item_id = cur.fetchone()[0]
+        
+        # Create transaction record
+        cur.execute("""
+            INSERT INTO stock_transactions 
+            (stock_item_id, transaction_type, quantity_change, quantity_before, quantity_after, notes, user_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (
+            stock_item_id,
+            'receive',
+            quantity,
+            0,
+            quantity,
+            f'Initial stock assignment to bin {bin_code}',
+            current_user.id
+        ))
+        
+        transaction_id = cur.fetchone()[0]
+        
+        # Commit transaction
+        cur.connection.commit()
+        cur.close()
+        
+        return jsonify({
+            'success': True,
+            'stock_item_id': stock_item_id,
+            'transaction_id': transaction_id,
+            'message': f'Successfully assigned {quantity} units of {product_name} to bin {bin_code}'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/products/available', methods=['GET'])
+@login_required
+def api_available_products():
+    """API endpoint to get available products for bin assignment"""
+    try:
+        cur = get_db_connection().cursor()
+        
+        cur.execute("""
+            SELECT 
+                id,
+                name,
+                sku,
+                barcode,
+                description
+            FROM products
+            ORDER BY name
+        """)
+        
+        products = []
+        for row in cur.fetchall():
+            products.append({
+                'id': row[0],
+                'name': row[1],
+                'sku': row[2],
+                'barcode': row[3],
+                'description': row[4]
+            })
+        
+        cur.close()
+        
+        return jsonify({'products': products})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/bin/<bin_code>/change-location', methods=['POST'])
+@login_required
+def api_change_bin_location(bin_code):
+    """API endpoint to change a bin's location"""
+    try:
+        data = request.get_json()
+        
+        # Validate required fields
+        if 'location_id' not in data:
+            return jsonify({'error': 'Missing required field: location_id'}), 400
+        
+        location_id = data['location_id']
+        
+        cur = get_db_connection().cursor()
+        
+        # Check if bin exists
+        cur.execute("SELECT id FROM bins WHERE code = %s", (bin_code,))
+        bin_result = cur.fetchone()
+        if not bin_result:
+            return jsonify({'error': f'Bin {bin_code} not found'}), 404
+        
+        bin_id = bin_result[0]
+        
+        # Check if location exists
+        cur.execute("SELECT id, full_code FROM locations WHERE id = %s", (location_id,))
+        location_result = cur.fetchone()
+        if not location_result:
+            return jsonify({'error': 'Location not found'}), 404
+        
+        location_code = location_result[1]
+        
+        # Update bin location
+        cur.execute("""
+            UPDATE bins 
+            SET location_id = %s, updated_at = NOW()
+            WHERE id = %s
+        """, (location_id, bin_id))
+        
+        # Create transaction record for the location change
+        cur.execute("""
+            INSERT INTO stock_transactions 
+            (stock_item_id, transaction_type, quantity_change, quantity_before, quantity_after, notes, user_id)
+            SELECT 
+                si.id,
+                'transfer',
+                0,
+                si.on_hand + si.qty_reserved,
+                si.on_hand + si.qty_reserved,
+                %s,
+                %s
+            FROM stock_items si
+            WHERE si.bin_id = %s
+        """, (f'Bin {bin_code} moved to location {location_code}', current_user.id, bin_id))
+        
+        # Commit transaction
+        cur.connection.commit()
+        cur.close()
+        
+        return jsonify({
+            'success': True,
+            'message': f'Successfully moved bin {bin_code} to location {location_code}'
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/locations/available', methods=['GET'])
+@login_required
+def api_available_locations():
+    """API endpoint to get available locations for bin assignment"""
+    try:
+        cur = get_db_connection().cursor()
+        
+        cur.execute("""
+            SELECT 
+                l.id,
+                l.full_code,
+                w.name as warehouse_name,
+                w.code as warehouse_code
+            FROM locations l
+            JOIN warehouses w ON l.warehouse_id = w.id
+            ORDER BY w.name, l.full_code
+        """)
+        
+        locations = []
+        for row in cur.fetchall():
+            locations.append({
+                'id': row[0],
+                'full_code': row[1],
+                'warehouse_name': row[2],
+                'warehouse_code': row[3]
+            })
+        
+        cur.close()
+        
+        return jsonify({'locations': locations})
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
     print("* Starting Inventory Management App...")

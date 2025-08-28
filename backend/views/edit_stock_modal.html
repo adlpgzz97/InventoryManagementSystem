@@ -24,7 +24,7 @@
                     <option value="">Select Location</option>
                     {% for location in locations %}
                     <option value="{{ location.id }}" {% if location.id == stock.location_id %}selected{% endif %}>
-                        {{ location.warehouse_name }} - {{ location.aisle }}{{ location.bin }}
+                        {{ location.warehouse_name }} - {{ location.full_code }}
                     </option>
                     {% endfor %}
                 </select>
@@ -35,9 +35,9 @@
     <div class="row">
         <div class="col-md-6">
             <div class="mb-3">
-                <label for="qty_available" class="form-label">Available Quantity <span class="text-danger">*</span></label>
-                <input type="number" min="0" class="form-control" id="qty_available" name="qty_available" 
-                       value="{{ stock.qty_available }}" required>
+                                <label for="qty_available" class="form-label">Available Quantity <span class="text-danger">*</span></label>
+                <input type="number" min="0" class="form-control" id="qty_available" name="qty_available"
+                       value="{{ stock.on_hand }}" required>
             </div>
         </div>
         <div class="col-md-6">
@@ -52,14 +52,14 @@
     <div class="alert alert-info">
         <i class="fas fa-info-circle me-2"></i>
         <strong>Current Status:</strong>
-        {% if stock.qty_available == 0 %}
-            <span class="badge bg-danger">Out of Stock</span>
-        {% elif stock.qty_available < 10 %}
-            <span class="badge bg-warning">Low Stock</span>
-        {% else %}
-            <span class="badge bg-success">In Stock</span>
-        {% endif %}
-        | <strong>Total:</strong> {{ stock.qty_available + stock.qty_reserved }} units
+                        {% if stock.on_hand == 0 %}
+                    <span class="badge bg-danger">Out of Stock</span>
+                {% elif stock.on_hand < 10 %}
+                    <span class="badge bg-warning">Low Stock</span>
+                {% else %}
+                    <span class="badge bg-success">In Stock</span>
+                {% endif %}
+                | <strong>Total:</strong> {{ stock.on_hand + stock.qty_reserved }} units
     </div>
     
     <div class="d-flex justify-content-between">

@@ -35,7 +35,7 @@
                     <option value="">Select Location</option>
                     {% for location in locations %}
                     <option value="{{ location.id }}">
-                        {{ location.warehouse_name }} - {{ location.aisle }}{{ location.bin }}
+                        {{ location.warehouse_name }} - {{ location.full_code }}
                     </option>
                     {% endfor %}
                 </select>

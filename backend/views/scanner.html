@@ -1,0 +1,1272 @@
+{% extends "base.html" %}
+
+{% block title %}Barcode Scanner - Inventory Management{% endblock %}
+
+{% block head %}
+<style>
+    .scanner-container {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        min-height: calc(100vh - 70px);
+        padding: 20px;
+    }
+    
+    .scanner-card {
+        background: white;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        overflow: hidden;
+    }
+    
+    .scanner-header {
+        background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+        color: white;
+        padding: 20px;
+        text-align: center;
+    }
+    
+    .scanner-body {
+        padding: 30px;
+    }
+    
+    .scan-input-container {
+        position: relative;
+        margin-bottom: 30px;
+    }
+    
+    .scan-input {
+        font-size: 24px;
+        padding: 20px;
+        border: 3px solid #e0e0e0;
+        border-radius: 10px;
+        width: 100%;
+        text-align: center;
+        transition: all 0.3s ease;
+    }
+    
+    .scan-input:focus {
+        border-color: #4CAF50;
+        box-shadow: 0 0 20px rgba(76, 175, 80, 0.3);
+        outline: none;
+    }
+    
+    .scan-input.scanning {
+        border-color: #dc3545;
+        background-color: #f8d7da;
+        animation: pulse 1s infinite;
+    }
+    
+    @keyframes pulse {
+        0% { box-shadow: 0 0 20px rgba(220, 53, 69, 0.3); }
+        50% { box-shadow: 0 0 30px rgba(220, 53, 69, 0.6); }
+        100% { box-shadow: 0 0 20px rgba(220, 53, 69, 0.3); }
+    }
+    
+    .location-info {
+        background: #f8f9fa;
+        border-radius: 10px;
+        padding: 20px;
+        margin-bottom: 20px;
+        border-left: 5px solid #4CAF50;
+    }
+    
+    .stock-items-container {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    
+    .stock-item-card {
+        background: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 8px;
+        padding: 15px;
+        margin-bottom: 10px;
+        transition: all 0.3s ease;
+    }
+    
+    .stock-item-card:hover {
+        box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        transform: translateY(-2px);
+    }
+    
+    .action-buttons {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 15px;
+    }
+    
+    .action-btn {
+        flex: 1;
+        min-width: 120px;
+        padding: 10px 15px;
+        border: none;
+        border-radius: 6px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        text-align: center;
+    }
+    
+    .action-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+    }
+    
+    .btn-pick { background: #2196F3; color: white; }
+    .btn-pick:hover { background: #1976D2; }
+    
+    .btn-restock { background: #4CAF50; color: white; }
+    .btn-restock:hover { background: #388E3C; }
+    
+    .btn-move { background: #FF9800; color: white; }
+    .btn-move:hover { background: #F57C00; }
+    
+    .btn-adjust { background: #9C27B0; color: white; }
+    .btn-adjust:hover { background: #7B1FA2; }
+    
+    .quantity-input {
+        width: 80px;
+        padding: 5px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        text-align: center;
+        margin: 0 10px;
+    }
+    
+    .status-indicator {
+        display: inline-block;
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        margin-right: 8px;
+    }
+    
+    .status-available { background: #4CAF50; }
+    .status-low { background: #FF9800; }
+    .status-out { background: #F44336; }
+    
+    .transaction-modal .modal-content {
+        border-radius: 15px;
+    }
+    
+    .transaction-modal .modal-header {
+        background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+        color: white;
+        border-radius: 15px 15px 0 0;
+    }
+    
+    .success-animation {
+        animation: successPulse 0.5s ease;
+    }
+    
+    @keyframes successPulse {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+    }
+    
+    .scan-history {
+        background: #f8f9fa;
+        border-radius: 10px;
+        padding: 15px;
+        margin-top: 20px;
+    }
+    
+    .history-item {
+        padding: 8px 12px;
+        margin: 5px 0;
+        background: white;
+        border-radius: 6px;
+        border-left: 4px solid #4CAF50;
+        font-size: 14px;
+    }
+    
+    .empty-state {
+        text-align: center;
+        padding: 40px 20px;
+        color: #666;
+    }
+    
+         .empty-state i {
+         font-size: 48px;
+         margin-bottom: 15px;
+         color: #ccc;
+     }
+     
+     .autocomplete-dropdown {
+         position: absolute;
+         top: 100%;
+         left: 0;
+         right: 0;
+         background: white;
+         border: 1px solid #ddd;
+         border-top: none;
+         border-radius: 0 0 4px 4px;
+         max-height: 200px;
+         overflow-y: auto;
+         z-index: 1050;
+         box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+     }
+     
+     .autocomplete-item {
+         padding: 10px 15px;
+         cursor: pointer;
+         border-bottom: 1px solid #f0f0f0;
+         transition: background-color 0.2s;
+     }
+     
+     .autocomplete-item:hover {
+         background-color: #f8f9fa;
+     }
+     
+     .autocomplete-item.selected {
+         background-color: #e3f2fd;
+     }
+     
+     .autocomplete-item:last-child {
+         border-bottom: none;
+     }
+     
+     .autocomplete-item .location-code {
+         font-weight: bold;
+         color: #2196F3;
+     }
+     
+     .autocomplete-item .warehouse-name {
+         font-size: 0.9em;
+         color: #666;
+     }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="scanner-container">
+    <div class="container-fluid">
+        <div class="row justify-content-center">
+            <div class="col-lg-10">
+                <div class="scanner-card">
+                    <div class="scanner-header">
+                        <h2><i class="fas fa-qrcode me-3"></i>Warehouse Scanner</h2>
+                        <p class="mb-0">Scan bin barcodes to manage inventory operations</p>
+                    </div>
+                    
+                    <div class="scanner-body">
+                        <!-- Scan Input Section -->
+                        <div class="scan-input-container">
+                            <label for="scanInput" class="form-label fw-bold mb-3">
+                                <i class="fas fa-barcode me-2"></i>Scan Bin Barcode
+                            </label>
+                            <input type="text" 
+                                   id="scanInput" 
+                                   class="form-control scan-input" 
+                                   placeholder="Scan or type bin code (e.g., B0045)"
+                                   autocomplete="off"
+                                   autofocus>
+                            <div class="form-text mt-2">
+                                <i class="fas fa-info-circle me-1"></i>
+                                Focus on this field and scan bin barcodes with your USB scanner
+                            </div>
+                        </div>
+                        
+                        <!-- Bin Information -->
+                        <div id="binInfo" class="location-info" style="display: none;">
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <h5><i class="fas fa-box me-2"></i>Bin Details</h5>
+                                    <div id="binDetails"></div>
+                                </div>
+                                <div class="col-md-6">
+                                    <h5><i class="fas fa-warehouse me-2"></i>Location Info</h5>
+                                    <div id="locationDetails"></div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Stock Items -->
+                        <div id="stockItemsContainer" class="stock-items-container" style="display: none;">
+                            <h5><i class="fas fa-boxes me-2"></i>Products in Bin</h5>
+                            <div id="stockItemsList"></div>
+                        </div>
+                        
+                        <!-- Empty State -->
+                        <div id="emptyState" class="empty-state">
+                            <i class="fas fa-qrcode"></i>
+                            <h4>Ready to Scan</h4>
+                            <p>Scan a bin barcode to view products and perform operations</p>
+                        </div>
+                        
+                        <!-- Scan History -->
+                        <div class="scan-history">
+                            <h6><i class="fas fa-history me-2"></i>Recent Scans</h6>
+                            <div id="scanHistory"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Transaction Modal -->
+<div class="modal fade transaction-modal" id="transactionModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-exchange-alt me-2"></i>
+                    <span id="transactionTitle">Perform Action</span>
+                </h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div id="transactionForm">
+                    <!-- Form will be dynamically populated -->
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="submitTransaction">
+                    <i class="fas fa-check me-1"></i>Submit Transaction
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Assign Stock Modal -->
+<div class="modal fade" id="assignStockModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-plus me-2"></i>
+                    Assign Stock to Bin
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">Bin Code</label>
+                            <input type="text" class="form-control" id="assignBinCode" readonly>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">Location</label>
+                            <input type="text" class="form-control" id="assignLocationCode" readonly>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">Product *</label>
+                            <select class="form-select" id="assignProductId" required>
+                                <option value="">Select a product...</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">Quantity *</label>
+                            <input type="number" class="form-control" id="assignQuantity" min="1" value="1" required>
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">Batch ID</label>
+                            <input type="text" class="form-control" id="assignBatchId" placeholder="Optional batch identifier">
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">Expiry Date</label>
+                            <input type="date" class="form-control" id="assignExpiryDate">
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Notes</label>
+                    <textarea class="form-control" id="assignNotes" rows="3" 
+                              placeholder="Enter any additional notes for this assignment"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-success" id="submitAssignStock">
+                    <i class="fas fa-check me-1"></i>Assign Stock
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Change Location Modal -->
+<div class="modal fade" id="changeLocationModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-map-marker-alt me-2"></i>
+                    Change Bin Location
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">Bin Code</label>
+                            <input type="text" class="form-control" id="changeLocationBinCode" readonly>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="mb-3">
+                            <label class="form-label">Current Location</label>
+                            <input type="text" class="form-control" id="changeLocationCurrentLocation" readonly>
+                        </div>
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">New Location *</label>
+                    <div class="position-relative">
+                        <input type="text" 
+                               class="form-control" 
+                               id="changeLocationInput" 
+                               placeholder="Type location code or scan barcode..."
+                               autocomplete="off"
+                               required>
+                        <div id="locationAutocomplete" class="autocomplete-dropdown" style="display: none;"></div>
+                    </div>
+                    <input type="hidden" id="changeLocationNewLocation" value="">
+                    <div class="form-text">
+                        <i class="fas fa-info-circle me-1"></i>
+                        Type to search locations or scan a location barcode
+                    </div>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Notes</label>
+                    <textarea class="form-control" id="changeLocationNotes" rows="3" 
+                              placeholder="Enter any additional notes for this location change"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="submitChangeLocation">
+                    <i class="fas fa-check me-1"></i>Change Location
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Success Modal -->
+<div class="modal fade" id="successModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-sm">
+        <div class="modal-content">
+            <div class="modal-body text-center p-4">
+                <i class="fas fa-check-circle text-success" style="font-size: 48px;"></i>
+                <h5 class="mt-3">Operation Successful!</h5>
+                <p id="successMessage" class="text-muted"></p>
+                <button type="button" class="btn btn-success" data-bs-dismiss="modal">Continue</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+class WarehouseScanner {
+    constructor() {
+        this.currentBin = null;
+        this.scanHistory = [];
+        this.autoFocusEnabled = true;
+        this.scanInput = document.getElementById('scanInput');
+        this.binInfo = document.getElementById('binInfo');
+        this.stockItemsContainer = document.getElementById('stockItemsContainer');
+        this.emptyState = document.getElementById('emptyState');
+        this.scanHistoryDiv = document.getElementById('scanHistory');
+        
+        this.initializeEventListeners();
+        this.focusScanInput();
+    }
+    
+    initializeEventListeners() {
+        // Handle scan input
+        this.scanInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                this.handleScan(this.scanInput.value.trim());
+            }
+        });
+        
+        // Handle input focus for visual feedback
+        this.scanInput.addEventListener('focus', () => {
+            this.scanInput.classList.add('scanning');
+        });
+        
+        this.scanInput.addEventListener('blur', () => {
+            this.scanInput.classList.remove('scanning');
+        });
+        
+        // Auto-focus on scan input when page loads, but not when modals are open
+        document.addEventListener('click', (e) => {
+            // Don't auto-focus if clicking inside a modal or if auto-focus is disabled
+            if (e.target.closest('.modal') || e.target.closest('.modal-backdrop') || !this.autoFocusEnabled) {
+                return;
+            }
+            this.focusScanInput();
+        });
+        
+        // Handle transaction submission
+        document.getElementById('submitTransaction').addEventListener('click', () => {
+            this.submitTransaction();
+        });
+        
+        // Handle assign stock submission
+        document.getElementById('submitAssignStock').addEventListener('click', () => {
+            this.submitAssignStock();
+        });
+        
+        // Handle change location submission
+        document.getElementById('submitChangeLocation').addEventListener('click', () => {
+            this.submitChangeLocation();
+        });
+        
+        // Handle action button clicks using event delegation
+        document.addEventListener('click', (e) => {
+            if (e.target.closest('.action-btn')) {
+                const button = e.target.closest('.action-btn');
+                const action = button.dataset.action;
+                const stockId = button.dataset.stockId;
+                const productName = button.dataset.productName;
+                
+                if (action && stockId && productName) {
+                    this.showTransactionModal(action, stockId, productName);
+                }
+            }
+        });
+    }
+    
+    focusScanInput() {
+        // Don't focus if auto-focus is disabled or if a modal is currently open
+        if (!this.autoFocusEnabled) {
+            return;
+        }
+        
+        const modal = document.querySelector('.modal.show');
+        if (modal) {
+            return;
+        }
+        
+        setTimeout(() => {
+            this.scanInput.focus();
+        }, 100);
+    }
+    
+    async handleScan(binCode) {
+        if (!binCode) return;
+        
+        // Clear input
+        this.scanInput.value = '';
+        
+        // Add to scan history
+        this.addToHistory(binCode);
+        
+        // Show loading state
+        this.showLoading();
+        
+        try {
+            const response = await fetch(`/api/bin/${binCode}`);
+            const data = await response.json();
+            
+            if (response.ok) {
+                this.displayBinData(data);
+            } else {
+                this.showError(data.error || 'Bin not found');
+            }
+        } catch (error) {
+            console.error('Error fetching bin data:', error);
+            this.showError('Network error occurred');
+        }
+    }
+    
+    displayBinData(data) {
+        this.currentBin = data.bin;
+        
+        // Show bin info
+        this.binInfo.style.display = 'block';
+        
+        document.getElementById('binDetails').innerHTML = `
+            <p><strong>Bin Code:</strong> ${data.bin.code}</p>
+            <p><strong>Location:</strong> ${data.bin.location_code || 'Not assigned'}</p>
+            <button class="btn btn-warning btn-sm mt-2" onclick="scanner.showChangeLocationModal()">
+                <i class="fas fa-map-marker-alt me-1"></i>Change Location
+            </button>
+        `;
+        
+        document.getElementById('locationDetails').innerHTML = `
+            <p><strong>Warehouse:</strong> ${data.bin.warehouse_name || 'Not assigned'}</p>
+            <p><strong>Warehouse Code:</strong> ${data.bin.warehouse_code || 'Not assigned'}</p>
+            <p><strong>Address:</strong> ${data.bin.warehouse_address || 'Not assigned'}</p>
+        `;
+        
+        // Check if bin has stock items
+        if (data.has_stock) {
+            this.displayStockItems(data.stock_items);
+            this.stockItemsContainer.style.display = 'block';
+            this.emptyState.style.display = 'none';
+        } else {
+            this.showEmptyBin();
+        }
+    }
+    
+    displayStockItems(stockItems) {
+        const container = document.getElementById('stockItemsList');
+        container.innerHTML = '';
+        
+        stockItems.forEach(item => {
+            const card = document.createElement('div');
+            card.className = 'stock-item-card';
+            
+                            const statusClass = this.getStatusClass(item.on_hand);
+                const statusText = this.getStatusText(item.on_hand);
+            
+            card.innerHTML = `
+                <div class="row align-items-center">
+                    <div class="col-md-4">
+                        <h6 class="mb-1">${item.product_name}</h6>
+                        <small class="text-muted">SKU: ${item.sku}</small>
+                        ${item.barcode ? `<br><small class="text-muted">Barcode: ${item.barcode}</small>` : ''}
+                    </div>
+                    <div class="col-md-3">
+                        <div class="d-flex align-items-center">
+                            <span class="status-indicator ${statusClass}"></span>
+                            <div>
+                                <div><strong>Available:</strong> ${item.on_hand}</div>
+                                <div><strong>Reserved:</strong> ${item.qty_reserved}</div>
+                                <div><strong>Total:</strong> ${item.total_qty}</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-5">
+                        <div class="action-buttons">
+                            <button class="action-btn btn-pick" data-action="pick" data-stock-id="${item.id}" data-product-name="${item.product_name}">
+                                <i class="fas fa-hand-paper me-1"></i>Pick
+                            </button>
+                            <button class="action-btn btn-restock" data-action="receive" data-stock-id="${item.id}" data-product-name="${item.product_name}">
+                                <i class="fas fa-plus me-1"></i>Restock
+                            </button>
+                            <button class="action-btn btn-adjust" data-action="adjust" data-stock-id="${item.id}" data-product-name="${item.product_name}">
+                                <i class="fas fa-edit me-1"></i>Adjust
+                            </button>
+                            <button class="action-btn btn-move" data-action="transfer" data-stock-id="${item.id}" data-product-name="${item.product_name}">
+                                <i class="fas fa-arrows-alt me-1"></i>Move
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            container.appendChild(card);
+        });
+    }
+    
+    getStatusClass(available) {
+        if (available === 0) return 'status-out';
+        if (available <= 5) return 'status-low';
+        return 'status-available';
+    }
+    
+    getStatusText(available) {
+        if (available === 0) return 'Out of Stock';
+        if (available <= 5) return 'Low Stock';
+        return 'Available';
+    }
+    
+    showEmptyBin() {
+        this.stockItemsContainer.style.display = 'none';
+        this.emptyState.style.display = 'block';
+        this.emptyState.innerHTML = `
+            <i class="fas fa-box-open"></i>
+            <h4>Empty Bin</h4>
+            <p>Bin ${this.currentBin.code} is empty</p>
+            <button class="btn btn-success mt-3" onclick="scanner.showAssignStockModal()">
+                <i class="fas fa-plus me-2"></i>Assign Stock to Bin
+            </button>
+        `;
+    }
+    
+    showTransactionModal(action, stockItemId, productName) {
+        const modal = new bootstrap.Modal(document.getElementById('transactionModal'));
+        const title = document.getElementById('transactionTitle');
+        const form = document.getElementById('transactionForm');
+        
+        title.textContent = `${action.charAt(0).toUpperCase() + action.slice(1)} - ${productName}`;
+        
+        const actionLabels = {
+            'pick': 'Ship/Pick',
+            'receive': 'Receive/Restock',
+            'adjust': 'Adjust Stock',
+            'transfer': 'Transfer Stock'
+        };
+        
+        form.innerHTML = `
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Action Type</label>
+                        <input type="text" class="form-control" value="${actionLabels[action]}" readonly>
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Product</label>
+                        <input type="text" class="form-control" value="${productName}" readonly>
+                    </div>
+                </div>
+            </div>
+            <div class="row">
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Quantity</label>
+                        <input type="number" class="form-control" id="transactionQuantity" min="1" value="1">
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <div class="mb-3">
+                        <label class="form-label">Transaction Type</label>
+                        <select class="form-select" id="transactionType">
+                            ${this.getTransactionTypeOptions(action)}
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="mb-3">
+                <label class="form-label">Notes</label>
+                <textarea class="form-control" id="transactionNotes" rows="3" 
+                          placeholder="Enter any additional notes for this transaction"></textarea>
+            </div>
+        `;
+        
+        // Store current transaction data
+        this.currentTransaction = {
+            stockItemId: stockItemId,
+            action: action
+        };
+        
+        modal.show();
+    }
+    
+    getTransactionTypeOptions(action) {
+        const options = {
+            'pick': '<option value="ship">Ship/Pick</option>',
+            'receive': '<option value="receive">Receive</option>',
+            'adjust': '<option value="adjust">Adjust</option>',
+            'transfer': '<option value="reserve">Reserve</option><option value="release">Release</option>'
+        };
+        return options[action] || '<option value="adjust">Adjust</option>';
+    }
+    
+    async submitTransaction() {
+        const quantity = parseInt(document.getElementById('transactionQuantity').value);
+        const transactionType = document.getElementById('transactionType').value;
+        const notes = document.getElementById('transactionNotes').value;
+        
+        if (!quantity || quantity <= 0) {
+            alert('Please enter a valid quantity');
+            return;
+        }
+        
+        const submitBtn = document.getElementById('submitTransaction');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Processing...';
+        submitBtn.disabled = true;
+        
+        try {
+            const response = await fetch('/api/scanner/transaction', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    stock_item_id: this.currentTransaction.stockItemId,
+                    transaction_type: transactionType,
+                    quantity_change: quantity,
+                    notes: notes
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                this.showSuccess(data);
+                // Refresh bin data
+                this.handleScan(this.currentBin.code);
+            } else {
+                alert('Error: ' + (data.error || 'Transaction failed'));
+            }
+        } catch (error) {
+            console.error('Transaction error:', error);
+            alert('Network error occurred');
+        } finally {
+            submitBtn.innerHTML = originalText;
+            submitBtn.disabled = false;
+        }
+    }
+    
+    showAssignStockModal() {
+        const modal = new bootstrap.Modal(document.getElementById('assignStockModal'));
+        
+        // Populate bin and location info
+        document.getElementById('assignBinCode').value = this.currentBin.code;
+        document.getElementById('assignLocationCode').value = this.currentBin.location_code || 'Not assigned';
+        
+        // Load available products
+        this.loadAvailableProducts();
+        
+        modal.show();
+    }
+    
+    async loadAvailableProducts() {
+        try {
+            const response = await fetch('/api/products/available');
+            const data = await response.json();
+            
+            if (response.ok) {
+                const select = document.getElementById('assignProductId');
+                select.innerHTML = '<option value="">Select a product...</option>';
+                
+                data.products.forEach(product => {
+                    const option = document.createElement('option');
+                    option.value = product.id;
+                    option.textContent = `${product.name} (${product.sku})`;
+                    select.appendChild(option);
+                });
+            }
+        } catch (error) {
+            console.error('Error loading products:', error);
+        }
+    }
+    
+    async submitAssignStock() {
+        const productId = document.getElementById('assignProductId').value;
+        const quantity = parseInt(document.getElementById('assignQuantity').value);
+        const batchId = document.getElementById('assignBatchId').value;
+        const expiryDate = document.getElementById('assignExpiryDate').value;
+        const notes = document.getElementById('assignNotes').value;
+        
+        if (!productId || !quantity || quantity <= 0) {
+            alert('Please select a product and enter a valid quantity');
+            return;
+        }
+        
+        const submitBtn = document.getElementById('submitAssignStock');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Processing...';
+        submitBtn.disabled = true;
+        
+        try {
+            const response = await fetch(`/api/bin/${this.currentBin.code}/assign-stock`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    product_id: productId,
+                    quantity: quantity,
+                    batch_id: batchId || null,
+                    expiry_date: expiryDate || null,
+                    notes: notes
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                this.showAssignSuccess(data);
+                // Refresh bin data
+                this.handleScan(this.currentBin.code);
+            } else {
+                alert('Error: ' + (data.error || 'Assignment failed'));
+            }
+        } catch (error) {
+            console.error('Assignment error:', error);
+            alert('Network error occurred');
+        } finally {
+            submitBtn.innerHTML = originalText;
+            submitBtn.disabled = false;
+        }
+    }
+    
+    showChangeLocationModal() {
+        const modal = new bootstrap.Modal(document.getElementById('changeLocationModal'));
+        
+        // Populate bin and current location info
+        document.getElementById('changeLocationBinCode').value = this.currentBin.code;
+        document.getElementById('changeLocationCurrentLocation').value = this.currentBin.location_code || 'Not assigned';
+        
+        // Load available locations
+        this.loadAvailableLocations();
+        
+        // Setup autocomplete functionality
+        this.setupLocationAutocomplete();
+        
+        modal.show();
+    }
+    
+    async loadAvailableLocations() {
+        try {
+            const response = await fetch('/api/locations/available');
+            const data = await response.json();
+            
+            if (response.ok) {
+                this.availableLocations = data.locations;
+            }
+        } catch (error) {
+            console.error('Error loading locations:', error);
+        }
+    }
+    
+    setupLocationAutocomplete() {
+        const input = document.getElementById('changeLocationInput');
+        const dropdown = document.getElementById('locationAutocomplete');
+        const hiddenInput = document.getElementById('changeLocationNewLocation');
+        
+        let selectedIndex = -1;
+        let filteredLocations = [];
+        
+        // Handle input changes
+        input.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            
+            if (query.length === 0) {
+                dropdown.style.display = 'none';
+                hiddenInput.value = '';
+                return;
+            }
+            
+            // Filter locations based on query
+            filteredLocations = this.availableLocations.filter(location => 
+                location.full_code.toLowerCase().includes(query) ||
+                location.warehouse_name.toLowerCase().includes(query) ||
+                location.warehouse_code.toLowerCase().includes(query)
+            );
+            
+            this.displayAutocompleteResults(filteredLocations, dropdown, input, hiddenInput);
+        });
+        
+        // Handle keyboard navigation
+        input.addEventListener('keydown', (e) => {
+            const items = dropdown.querySelectorAll('.autocomplete-item');
+            
+            switch (e.key) {
+                case 'ArrowDown':
+                    e.preventDefault();
+                    selectedIndex = Math.min(selectedIndex + 1, items.length - 1);
+                    this.updateSelectedItem(items, selectedIndex);
+                    break;
+                    
+                case 'ArrowUp':
+                    e.preventDefault();
+                    selectedIndex = Math.max(selectedIndex - 1, -1);
+                    this.updateSelectedItem(items, selectedIndex);
+                    break;
+                    
+                case 'Enter':
+                    e.preventDefault();
+                    if (selectedIndex >= 0 && items[selectedIndex]) {
+                        this.selectLocation(items[selectedIndex], input, hiddenInput, dropdown);
+                    } else if (filteredLocations.length === 1) {
+                        // Auto-select if only one result
+                        this.selectLocation(items[0], input, hiddenInput, dropdown);
+                    }
+                    break;
+                    
+                case 'Escape':
+                    dropdown.style.display = 'none';
+                    selectedIndex = -1;
+                    break;
+            }
+        });
+        
+        // Handle click outside to close dropdown
+        document.addEventListener('click', (e) => {
+            if (!input.contains(e.target) && !dropdown.contains(e.target)) {
+                dropdown.style.display = 'none';
+                selectedIndex = -1;
+            }
+        });
+        
+        // Handle barcode scanning (Enter key with no arrow keys pressed)
+        input.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && selectedIndex === -1 && filteredLocations.length === 0) {
+                // This might be a barcode scan - validate the location
+                this.validateAndSelectLocation(input.value.trim(), input, hiddenInput, dropdown);
+            }
+        });
+    }
+    
+    displayAutocompleteResults(locations, dropdown, input, hiddenInput) {
+        dropdown.innerHTML = '';
+        
+        if (locations.length === 0) {
+            dropdown.style.display = 'none';
+            return;
+        }
+        
+        locations.forEach((location, index) => {
+            const item = document.createElement('div');
+            item.className = 'autocomplete-item';
+            item.innerHTML = `
+                <div class="location-code">${location.full_code}</div>
+                <div class="warehouse-name">${location.warehouse_name} (${location.warehouse_code})</div>
+            `;
+            
+            item.addEventListener('click', () => {
+                this.selectLocation(item, input, hiddenInput, dropdown);
+            });
+            
+            dropdown.appendChild(item);
+        });
+        
+        dropdown.style.display = 'block';
+    }
+    
+    updateSelectedItem(items, selectedIndex) {
+        items.forEach((item, index) => {
+            item.classList.toggle('selected', index === selectedIndex);
+        });
+    }
+    
+    selectLocation(item, input, hiddenInput, dropdown) {
+        const locationCode = item.querySelector('.location-code').textContent;
+        const location = this.availableLocations.find(loc => loc.full_code === locationCode);
+        
+        if (location) {
+            input.value = location.full_code;
+            hiddenInput.value = location.id;
+            dropdown.style.display = 'none';
+        }
+    }
+    
+    async validateAndSelectLocation(locationCode, input, hiddenInput, dropdown) {
+        // Find exact match first
+        let location = this.availableLocations.find(loc => 
+            loc.full_code.toLowerCase() === locationCode.toLowerCase()
+        );
+        
+        if (location) {
+            input.value = location.full_code;
+            hiddenInput.value = location.id;
+            dropdown.style.display = 'none';
+            return;
+        }
+        
+        // If no exact match, show error
+        input.classList.add('is-invalid');
+        setTimeout(() => {
+            input.classList.remove('is-invalid');
+        }, 2000);
+        
+        // Show available options
+        const filteredLocations = this.availableLocations.filter(loc => 
+            loc.full_code.toLowerCase().includes(locationCode.toLowerCase())
+        );
+        
+        this.displayAutocompleteResults(filteredLocations, dropdown, input, hiddenInput);
+    }
+    
+    async submitChangeLocation() {
+        const locationId = document.getElementById('changeLocationNewLocation').value;
+        const locationInput = document.getElementById('changeLocationInput').value;
+        const notes = document.getElementById('changeLocationNotes').value;
+        
+        if (!locationId && !locationInput) {
+            alert('Please select or enter a new location');
+            return;
+        }
+        
+        if (!locationId) {
+            alert('Please select a valid location from the dropdown or scan a valid location barcode');
+            return;
+        }
+        
+        const submitBtn = document.getElementById('submitChangeLocation');
+        const originalText = submitBtn.innerHTML;
+        submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Processing...';
+        submitBtn.disabled = true;
+        
+        try {
+            const response = await fetch(`/api/bin/${this.currentBin.code}/change-location`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    location_id: locationId,
+                    notes: notes
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                this.showChangeLocationSuccess(data);
+                // Refresh bin data
+                this.handleScan(this.currentBin.code);
+            } else {
+                alert('Error: ' + (data.error || 'Location change failed'));
+            }
+        } catch (error) {
+            console.error('Location change error:', error);
+            alert('Network error occurred');
+        } finally {
+            submitBtn.innerHTML = originalText;
+            submitBtn.disabled = false;
+        }
+    }
+    
+    showChangeLocationSuccess(data) {
+        // Close change location modal
+        const changeLocationModal = bootstrap.Modal.getInstance(document.getElementById('changeLocationModal'));
+        changeLocationModal.hide();
+        
+        // Show success modal
+        document.getElementById('successMessage').textContent = data.message;
+        
+        const successModal = new bootstrap.Modal(document.getElementById('successModal'));
+        successModal.show();
+        
+        // Add success animation to the page
+        document.querySelector('.scanner-card').classList.add('success-animation');
+        setTimeout(() => {
+            document.querySelector('.scanner-card').classList.remove('success-animation');
+        }, 500);
+    }
+    
+    showAssignSuccess(data) {
+        // Close assign stock modal
+        const assignModal = bootstrap.Modal.getInstance(document.getElementById('assignStockModal'));
+        assignModal.hide();
+        
+        // Show success modal
+        document.getElementById('successMessage').textContent = data.message;
+        
+        const successModal = new bootstrap.Modal(document.getElementById('successModal'));
+        successModal.show();
+        
+        // Add success animation to the page
+        document.querySelector('.scanner-card').classList.add('success-animation');
+        setTimeout(() => {
+            document.querySelector('.scanner-card').classList.remove('success-animation');
+        }, 500);
+    }
+    
+    showSuccess(data) {
+        // Close transaction modal
+        const transactionModal = bootstrap.Modal.getInstance(document.getElementById('transactionModal'));
+        transactionModal.hide();
+        
+        // Show success modal
+        document.getElementById('successMessage').textContent = 
+            `Successfully ${data.transaction.type}ed ${data.transaction.quantity_change} units of ${data.stock_item.product_name}`;
+        
+        const successModal = new bootstrap.Modal(document.getElementById('successModal'));
+        successModal.show();
+        
+        // Add success animation to the page
+        document.querySelector('.scanner-card').classList.add('success-animation');
+        setTimeout(() => {
+            document.querySelector('.scanner-card').classList.remove('success-animation');
+        }, 500);
+    }
+    
+    addToHistory(locationCode) {
+        const timestamp = new Date().toLocaleTimeString();
+        this.scanHistory.unshift({ code: locationCode, time: timestamp });
+        this.scanHistory = this.scanHistory.slice(0, 10); // Keep last 10 scans
+        this.updateHistoryDisplay();
+    }
+    
+    updateHistoryDisplay() {
+        this.scanHistoryDiv.innerHTML = '';
+        
+        if (this.scanHistory.length === 0) {
+            this.scanHistoryDiv.innerHTML = '<p class="text-muted">No recent scans</p>';
+            return;
+        }
+        
+        this.scanHistory.forEach(scan => {
+            const item = document.createElement('div');
+            item.className = 'history-item';
+            item.innerHTML = `
+                <strong>${scan.code}</strong> - ${scan.time}
+            `;
+            item.style.cursor = 'pointer';
+            item.onclick = () => {
+                this.scanInput.value = scan.code;
+                this.handleScan(scan.code);
+            };
+            this.scanHistoryDiv.appendChild(item);
+        });
+    }
+    
+    showLoading() {
+        this.binInfo.style.display = 'none';
+        this.stockItemsContainer.style.display = 'none';
+        this.emptyState.style.display = 'block';
+        this.emptyState.innerHTML = `
+            <i class="fas fa-spinner fa-spin"></i>
+            <h4>Loading...</h4>
+            <p>Fetching bin data</p>
+        `;
+    }
+    
+    showError(message) {
+        this.binInfo.style.display = 'none';
+        this.stockItemsContainer.style.display = 'none';
+        this.emptyState.style.display = 'block';
+        this.emptyState.innerHTML = `
+            <i class="fas fa-exclamation-triangle text-warning"></i>
+            <h4>Error</h4>
+            <p>${message}</p>
+        `;
+    }
+}
+
+// Initialize scanner when page loads
+let scanner;
+document.addEventListener('DOMContentLoaded', function() {
+    scanner = new WarehouseScanner();
+});
+
+// Handle page visibility changes to refocus input
+document.addEventListener('visibilitychange', function() {
+    if (!document.hidden && scanner) {
+        scanner.focusScanInput();
+    }
+});
+
+// Listen for modal events to manage focus behavior
+document.addEventListener('shown.bs.modal', function() {
+    // Modal is now open, disable auto-focus
+    if (scanner) {
+        scanner.autoFocusEnabled = false;
+    }
+});
+
+document.addEventListener('hidden.bs.modal', function() {
+    // Modal is now closed, re-enable auto-focus
+    if (scanner) {
+        scanner.autoFocusEnabled = true;
+        scanner.focusScanInput();
+    }
+});
+</script>
+{% endblock %}

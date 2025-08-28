@@ -205,6 +205,22 @@
                                         <h6 class="mb-0"><i class="fas fa-calculator me-2"></i>Forecasting Metrics</h6>
                                     </div>
                                     <div class="card-body">
+                                        <div class="row mb-3">
+                                            <div class="col-12">
+                                                <div class="btn-group btn-group-sm w-100" role="group" id="forecasting-mode-toggle">
+                                                    <input type="radio" class="btn-check" name="forecasting-mode" id="mode-automatic" value="automatic" checked>
+                                                    <label class="btn btn-outline-primary" for="mode-automatic">
+                                                        <i class="fas fa-robot me-1"></i>Automatic
+                                                    </label>
+                                                    
+                                                    <input type="radio" class="btn-check" name="forecasting-mode" id="mode-manual" value="manual">
+                                                    <label class="btn btn-outline-primary" for="mode-manual">
+                                                        <i class="fas fa-edit me-1"></i>Manual
+                                                    </label>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
                                         <table class="table table-sm">
                                             <tr><td><strong>Average Daily Usage:</strong></td><td id="avg-daily-usage">0 units</td></tr>
                                             <tr><td><strong>Usage Standard Deviation:</strong></td><td id="usage-std-dev">0 units</td></tr>
@@ -212,7 +228,47 @@
                                             <tr><td><strong>Lead Time:</strong></td><td id="lead-time">7 days</td></tr>
                                             <tr><td><strong>Safety Stock:</strong></td><td id="safety-stock">0 units</td></tr>
                                             <tr><td><strong>Reorder Point:</strong></td><td id="reorder-point">0 units</td></tr>
+                                            <tr><td><strong>Calculation Mode:</strong></td><td id="calculation-mode">Automatic</td></tr>
                                         </table>
+                                        
+                                        <!-- Manual Override Section -->
+                                        <div id="manual-override-section" style="display: none;">
+                                            <hr>
+                                            <h6 class="mb-3"><i class="fas fa-edit me-2"></i>Manual Override</h6>
+                                            <div class="row g-2">
+                                                <div class="col-md-4">
+                                                    <label class="form-label small">Lead Time (days)</label>
+                                                    <input type="number" class="form-control form-control-sm" id="manual-lead-time" min="1" value="7">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label small">Safety Stock</label>
+                                                    <input type="number" class="form-control form-control-sm" id="manual-safety-stock" min="0" placeholder="Auto">
+                                                </div>
+                                                <div class="col-md-4">
+                                                    <label class="form-label small">Reorder Point</label>
+                                                    <input type="number" class="form-control form-control-sm" id="manual-reorder-point" min="0" placeholder="Auto">
+                                                </div>
+                                            </div>
+                                            <div class="row mt-2">
+                                                <div class="col-12">
+                                                    <label class="form-label small">Notes</label>
+                                                    <textarea class="form-control form-control-sm" id="forecasting-notes" rows="2" placeholder="Add notes about forecasting decisions..."></textarea>
+                                                </div>
+                                            </div>
+                                                                                         <div class="row mt-2">
+                                                 <div class="col-12">
+                                                     <button type="button" class="btn btn-primary btn-sm" id="save-forecasting-settings">
+                                                         <i class="fas fa-save me-1"></i>Save Manual Settings
+                                                     </button>
+                                                     <button type="button" class="btn btn-success btn-sm ms-2" id="switch-to-automatic">
+                                                         <i class="fas fa-robot me-1"></i>Switch to Automatic
+                                                     </button>
+                                                     <button type="button" class="btn btn-secondary btn-sm ms-2" id="reset-forecasting-settings">
+                                                         <i class="fas fa-undo me-1"></i>Reset Form
+                                                     </button>
+                                                 </div>
+                                             </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

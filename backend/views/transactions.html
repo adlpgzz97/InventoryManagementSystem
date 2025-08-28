@@ -1,0 +1,778 @@
+{% extends "base.html" %}
+
+{% block title %}Stock Transactions - Inventory Management{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Stock Transactions</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            {% if current_user.role in ['admin', 'manager'] %}
+            <button type="button" class="btn btn-sm btn-success" data-bs-toggle="modal" data-bs-target="#add-transaction-modal">
+                <i class="fas fa-plus"></i> New Transaction
+            </button>
+            {% endif %}
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="export-transactions">
+                <i class="fas fa-download"></i> Export CSV
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Statistics Cards -->
+<div class="row mb-4">
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-primary">{{ stats.total_transactions or 0 }}</h5>
+                <p class="card-text small">Total Transactions</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-success">{{ stats.total_received or 0 }}</h5>
+                <p class="card-text small">Total Received</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-danger">{{ stats.total_shipped or 0 }}</h5>
+                <p class="card-text small">Total Shipped</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-warning">{{ stats.total_adjusted or 0 }}</h5>
+                <p class="card-text small">Total Adjusted</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-info">{{ stats.unique_products or 0 }}</h5>
+                <p class="card-text small">Products Involved</p>
+            </div>
+        </div>
+    </div>
+    <div class="col-md-2">
+        <div class="card text-center">
+            <div class="card-body">
+                <h5 class="card-title text-secondary">{{ stats.unique_stock_items or 0 }}</h5>
+                <p class="card-text small">Stock Items</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Filters and Search -->
+<div class="card mb-4">
+    <div class="card-header">
+        <div class="row align-items-center">
+            <div class="col-md-3">
+                <div class="input-group input-group-sm">
+                    <input type="text" id="search-transactions" class="form-control" 
+                           placeholder="Search transactions...">
+                    <button class="btn btn-outline-secondary" type="button" id="clear-search">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <select id="filter-type" class="form-select form-select-sm">
+                    <option value="">All Types</option>
+                    <option value="receive">Receive</option>
+                    <option value="ship">Ship</option>
+                    <option value="adjust">Adjust</option>
+                    <option value="transfer">Transfer</option>
+                    <option value="reserve">Reserve</option>
+                    <option value="release">Release</option>
+                </select>
+            </div>
+            <div class="col-md-2">
+                <select id="filter-warehouse" class="form-select form-select-sm">
+                    <option value="">All Warehouses</option>
+                    <!-- Will be populated by JavaScript -->
+                </select>
+            </div>
+            <div class="col-md-2">
+                <input type="date" id="filter-date-from" class="form-control form-control-sm" placeholder="From Date">
+            </div>
+            <div class="col-md-2">
+                <input type="date" id="filter-date-to" class="form-control form-control-sm" placeholder="To Date">
+            </div>
+            <div class="col-md-1">
+                <button id="clear-filters" class="btn btn-outline-secondary btn-sm">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Transactions Table -->
+<div class="card">
+    <div class="card-body">
+        <div class="table-responsive">
+            <table class="table table-striped table-hover">
+                <thead>
+                    <tr>
+                        <th>Date/Time</th>
+                        <th>Type</th>
+                        <th>Product</th>
+                        <th>Location</th>
+                        <th>Quantity Change</th>
+                        <th>Before</th>
+                        <th>After</th>
+                        <th>User</th>
+                        <th>Notes</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="transactions-tbody">
+                    {% for transaction in transactions %}
+                    <tr class="transaction-row" 
+                        data-id="{{ transaction.id }}"
+                        data-type="{{ transaction.transaction_type }}"
+                        data-product="{{ transaction.product_name|lower }}"
+                        data-warehouse="{{ transaction.warehouse_name|lower if transaction.warehouse_name else '' }}"
+                        data-date="{{ transaction.created_at.strftime('%Y-%m-%d') if transaction.created_at else '' }}">
+                        <td>
+                            <small class="text-muted">
+                                {{ transaction.created_at.strftime('%Y-%m-%d %H:%M') if transaction.created_at else 'N/A' }}
+                            </small>
+                        </td>
+                        <td>
+                            <span class="badge {{ 'bg-success' if transaction.transaction_type == 'receive' else 'bg-danger' if transaction.transaction_type == 'ship' else 'bg-warning' if transaction.transaction_type == 'adjust' else 'bg-info' if transaction.transaction_type == 'transfer' else 'bg-secondary' }}">
+                                {{ transaction.transaction_type|title }}
+                            </span>
+                        </td>
+                        <td>
+                            <div>
+                                <strong>{{ transaction.product_name or 'N/A' }}</strong>
+                                {% if transaction.sku %}
+                                <br><small class="text-muted">{{ transaction.sku }}</small>
+                                {% endif %}
+                            </div>
+                        </td>
+                        <td>
+                            {% if transaction.warehouse_name and transaction.full_code %}
+                            <small>{{ transaction.warehouse_name }} - {{ transaction.full_code }}</small>
+                            {% else %}
+                            <small class="text-muted">N/A</small>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <span class="badge {{ 'bg-success' if transaction.quantity_change > 0 else 'bg-danger' }}">
+                                {{ '+' if transaction.quantity_change > 0 else '' }}{{ transaction.quantity_change }}
+                            </span>
+                        </td>
+                        <td>
+                            <small class="text-muted">{{ transaction.quantity_before }}</small>
+                        </td>
+                        <td>
+                            <small class="text-muted">{{ transaction.quantity_after }}</small>
+                        </td>
+                        <td>
+                            <small class="text-muted">{{ transaction.user_name or 'System' }}</small>
+                        </td>
+                        <td>
+                            <small class="text-muted">{{ transaction.notes or '-' }}</small>
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary btn-sm view-transaction-btn" 
+                                        data-transaction-id="{{ transaction.id }}"
+                                        title="View Details">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                                {% if current_user.role in ['admin', 'manager'] %}
+                                <button class="btn btn-outline-warning btn-sm edit-transaction-btn" 
+                                        data-transaction-id="{{ transaction.id }}"
+                                        title="Edit Transaction">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                {% endif %}
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer">
+        <!-- Pagination -->
+        <div class="row align-items-center">
+            <div class="col-md-3">
+                <div class="d-flex align-items-center">
+                    <label for="items-per-page" class="form-label me-2 mb-0 small">Show:</label>
+                    <select id="items-per-page" class="form-select form-select-sm" style="width: auto;">
+                        <option value="10">10</option>
+                        <option value="25" selected>25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="all">All</option>
+                    </select>
+                    <span class="ms-2 small text-muted">per page</span>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <nav aria-label="Transactions pagination">
+                    <ul class="pagination pagination-sm justify-content-center mb-0" id="pagination-controls">
+                        <!-- Pagination buttons will be generated by JavaScript -->
+                    </ul>
+                </nav>
+            </div>
+            <div class="col-md-3">
+                <div class="text-end">
+                    <small class="text-muted">
+                        <span id="pagination-info">Showing 1-25 of {{ transactions|length }}</span>
+                    </small>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Add Transaction Modal -->
+{% if current_user.role in ['admin', 'manager'] %}
+<div class="modal fade" id="add-transaction-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-plus me-2"></i>New Stock Transaction
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <form id="add-transaction-form">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="transaction-type" class="form-label">Transaction Type *</label>
+                                <select id="transaction-type" class="form-select" required>
+                                    <option value="">Select Type</option>
+                                    <option value="receive">Receive</option>
+                                    <option value="ship">Ship</option>
+                                    <option value="adjust">Adjust</option>
+                                    <option value="transfer">Transfer</option>
+                                    <option value="reserve">Reserve</option>
+                                    <option value="release">Release</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="stock-item-select" class="form-label">Stock Item *</label>
+                                <select id="stock-item-select" class="form-select" required>
+                                    <option value="">Select Stock Item</option>
+                                    <!-- Will be populated by JavaScript -->
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="quantity-change" class="form-label">Quantity Change *</label>
+                                <input type="number" id="quantity-change" class="form-control" required>
+                                <div class="form-text">Use positive for receive, negative for ship/adjust</div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="mb-3">
+                                <label for="reference-id" class="form-label">Reference ID</label>
+                                <input type="text" id="reference-id" class="form-control" placeholder="Order ID, Transfer ID, etc.">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mb-3">
+                        <label for="transaction-notes" class="form-label">Notes</label>
+                        <textarea id="transaction-notes" class="form-control" rows="3" placeholder="Transaction notes..."></textarea>
+                    </div>
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" id="save-transaction">
+                    <i class="fas fa-save me-1"></i>Save Transaction
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Transaction Details Modal -->
+<div class="modal fade" id="transaction-details-modal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-info-circle me-2"></i>Transaction Details
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="transaction-details-content">
+                <!-- Content will be loaded dynamically -->
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('Transactions page JavaScript loaded');
+    
+    // Initialize variables
+    let currentPage = 1;
+    let itemsPerPage = 25;
+    let filteredTransactions = [];
+    let allTransactions = [];
+    
+    // Get DOM elements
+    const searchInput = document.getElementById('search-transactions');
+    const filterType = document.getElementById('filter-type');
+    const filterWarehouse = document.getElementById('filter-warehouse');
+    const filterDateFrom = document.getElementById('filter-date-from');
+    const filterDateTo = document.getElementById('filter-date-to');
+    const clearFiltersBtn = document.getElementById('clear-filters');
+    const clearSearchBtn = document.getElementById('clear-search');
+    const itemsPerPageSelect = document.getElementById('items-per-page');
+    const exportBtn = document.getElementById('export-transactions');
+    
+    // Initialize the page
+    initializeTransactionsPage();
+    
+    function initializeTransactionsPage() {
+        // Load initial data
+        loadTransactions();
+        
+        // Set up event listeners
+        setupEventListeners();
+        
+        // Load filter options
+        loadFilterOptions();
+    }
+    
+    function setupEventListeners() {
+        // Search and filter events
+        if (searchInput) {
+            searchInput.addEventListener('input', filterTransactions);
+        }
+        if (filterType) {
+            filterType.addEventListener('change', filterTransactions);
+        }
+        if (filterWarehouse) {
+            filterWarehouse.addEventListener('change', filterTransactions);
+        }
+        if (filterDateFrom) {
+            filterDateFrom.addEventListener('change', filterTransactions);
+        }
+        if (filterDateTo) {
+            filterDateTo.addEventListener('change', filterTransactions);
+        }
+        
+        // Clear buttons
+        if (clearFiltersBtn) {
+            clearFiltersBtn.addEventListener('click', clearAllFilters);
+        }
+        if (clearSearchBtn) {
+            clearSearchBtn.addEventListener('click', clearSearch);
+        }
+        
+        // Pagination
+        if (itemsPerPageSelect) {
+            itemsPerPageSelect.addEventListener('change', function() {
+                itemsPerPage = this.value === 'all' ? 'all' : parseInt(this.value);
+                currentPage = 1;
+                applyPagination();
+            });
+        }
+        
+        // Export
+        if (exportBtn) {
+            exportBtn.addEventListener('click', exportTransactions);
+        }
+        
+        // Transaction buttons
+        document.addEventListener('click', function(e) {
+            if (e.target.closest('.view-transaction-btn')) {
+                const btn = e.target.closest('.view-transaction-btn');
+                const transactionId = btn.getAttribute('data-transaction-id');
+                viewTransactionDetails(transactionId);
+            }
+            
+            if (e.target.closest('.edit-transaction-btn')) {
+                const btn = e.target.closest('.edit-transaction-btn');
+                const transactionId = btn.getAttribute('data-transaction-id');
+                editTransaction(transactionId);
+            }
+        });
+        
+        // Add transaction form
+        const saveTransactionBtn = document.getElementById('save-transaction');
+        if (saveTransactionBtn) {
+            saveTransactionBtn.addEventListener('click', saveTransaction);
+        }
+    }
+    
+    function loadTransactions() {
+        // For now, we'll use the server-side rendered data
+        // In a full implementation, this would fetch from the API
+        const transactionRows = document.querySelectorAll('.transaction-row');
+        allTransactions = Array.from(transactionRows);
+        filteredTransactions = Array.from(transactionRows);
+        
+        applyPagination();
+    }
+    
+         function loadFilterOptions() {
+         // Load warehouse options
+         fetch('/api/warehouses')
+             .then(response => response.json())
+             .then(data => {
+                 if (filterWarehouse && data.warehouses) {
+                     data.warehouses.forEach(warehouse => {
+                         const option = document.createElement('option');
+                         option.value = warehouse.id;
+                         option.textContent = warehouse.name;
+                         filterWarehouse.appendChild(option);
+                     });
+                 }
+             })
+             .catch(error => console.error('Error loading warehouses:', error));
+         
+         // Load stock items for transaction form
+         fetch('/api/stock-items')
+             .then(response => response.json())
+             .then(data => {
+                 const stockItemSelect = document.getElementById('stock-item-select');
+                 if (stockItemSelect && data.stock_items) {
+                     data.stock_items.forEach(item => {
+                         const option = document.createElement('option');
+                         option.value = item.id;
+                         option.textContent = `${item.product_name} (${item.sku}) - ${item.warehouse_name} ${item.full_code} (${item.on_hand} available)`;
+                         stockItemSelect.appendChild(option);
+                     });
+                 }
+             })
+             .catch(error => console.error('Error loading stock items:', error));
+     }
+    
+    function filterTransactions() {
+        const searchTerm = searchInput ? searchInput.value.toLowerCase() : '';
+        const typeFilter = filterType ? filterType.value : '';
+        const warehouseFilter = filterWarehouse ? filterWarehouse.value : '';
+        const dateFrom = filterDateFrom ? filterDateFrom.value : '';
+        const dateTo = filterDateTo ? filterDateTo.value : '';
+        
+        filteredTransactions = allTransactions.filter(row => {
+            const type = row.getAttribute('data-type') || '';
+            const product = row.getAttribute('data-product') || '';
+            const warehouse = row.getAttribute('data-warehouse') || '';
+            const date = row.getAttribute('data-date') || '';
+            
+            const matchesSearch = !searchTerm || 
+                product.includes(searchTerm) ||
+                warehouse.includes(searchTerm);
+            
+            const matchesType = !typeFilter || type === typeFilter;
+            const matchesWarehouse = !warehouseFilter || warehouse.includes(warehouseFilter);
+            const matchesDateFrom = !dateFrom || date >= dateFrom;
+            const matchesDateTo = !dateTo || date <= dateTo;
+            
+            return matchesSearch && matchesType && matchesWarehouse && matchesDateFrom && matchesDateTo;
+        });
+        
+        currentPage = 1;
+        applyPagination();
+    }
+    
+    function clearAllFilters() {
+        if (filterType) filterType.value = '';
+        if (filterWarehouse) filterWarehouse.value = '';
+        if (filterDateFrom) filterDateFrom.value = '';
+        if (filterDateTo) filterDateTo.value = '';
+        if (searchInput) searchInput.value = '';
+        filterTransactions();
+    }
+    
+    function clearSearch() {
+        if (searchInput) searchInput.value = '';
+        filterTransactions();
+    }
+    
+    function applyPagination() {
+        const tbody = document.getElementById('transactions-tbody');
+        if (!tbody) return;
+        
+        // Determine which rows to show
+        let rowsToShow;
+        if (itemsPerPage === 'all') {
+            rowsToShow = filteredTransactions;
+        } else {
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            const endIndex = startIndex + itemsPerPage;
+            rowsToShow = filteredTransactions.slice(startIndex, endIndex);
+        }
+        
+        // Clear and repopulate tbody
+        tbody.innerHTML = '';
+        rowsToShow.forEach(row => {
+            tbody.appendChild(row.cloneNode(true));
+        });
+        
+        updatePagination();
+    }
+    
+    function updatePagination() {
+        const totalItems = filteredTransactions.length;
+        const totalPages = itemsPerPage === 'all' ? 1 : Math.ceil(totalItems / itemsPerPage);
+        
+        // Update pagination info
+        const startItem = itemsPerPage === 'all' ? 1 : (currentPage - 1) * itemsPerPage + 1;
+        const endItem = itemsPerPage === 'all' ? totalItems : Math.min(currentPage * itemsPerPage, totalItems);
+        
+        const paginationInfo = document.getElementById('pagination-info');
+        if (paginationInfo) {
+            paginationInfo.textContent = `Showing ${startItem}-${endItem} of ${totalItems}`;
+        }
+        
+        // Generate pagination controls
+        const paginationControls = document.getElementById('pagination-controls');
+        if (!paginationControls) return;
+        paginationControls.innerHTML = '';
+        
+        if (itemsPerPage === 'all' || totalPages <= 1) {
+            return;
+        }
+        
+        // Previous button
+        const prevButton = createPaginationButton('‹', currentPage - 1, currentPage === 1);
+        paginationControls.appendChild(prevButton);
+        
+        // Page numbers
+        const startPage = Math.max(1, currentPage - 2);
+        const endPage = Math.min(totalPages, currentPage + 2);
+        
+        if (startPage > 1) {
+            paginationControls.appendChild(createPaginationButton('1', 1));
+            if (startPage > 2) {
+                const ellipsis = document.createElement('li');
+                ellipsis.className = 'page-item disabled';
+                ellipsis.innerHTML = '<span class="page-link">...</span>';
+                paginationControls.appendChild(ellipsis);
+            }
+        }
+        
+        for (let i = startPage; i <= endPage; i++) {
+            paginationControls.appendChild(createPaginationButton(i, i, false, i === currentPage));
+        }
+        
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                const ellipsis = document.createElement('li');
+                ellipsis.className = 'page-item disabled';
+                ellipsis.innerHTML = '<span class="page-link">...</span>';
+                paginationControls.appendChild(ellipsis);
+            }
+            paginationControls.appendChild(createPaginationButton(totalPages, totalPages));
+        }
+        
+        // Next button
+        const nextButton = createPaginationButton('›', currentPage + 1, currentPage === totalPages);
+        paginationControls.appendChild(nextButton);
+    }
+    
+    function createPaginationButton(text, page, disabled = false, active = false) {
+        const li = document.createElement('li');
+        li.className = `page-item ${disabled ? 'disabled' : ''} ${active ? 'active' : ''}`;
+        
+        const button = document.createElement(disabled ? 'span' : 'button');
+        button.className = 'page-link';
+        button.textContent = text;
+        
+        if (!disabled) {
+            button.addEventListener('click', () => {
+                currentPage = page;
+                applyPagination();
+            });
+        }
+        
+        li.appendChild(button);
+        return li;
+    }
+    
+    function viewTransactionDetails(transactionId) {
+        fetch(`/api/transactions/${transactionId}`)
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error loading transaction details: ' + data.error);
+                    return;
+                }
+                
+                const modal = new bootstrap.Modal(document.getElementById('transaction-details-modal'));
+                const content = document.getElementById('transaction-details-content');
+                
+                content.innerHTML = `
+                    <div class="row">
+                        <div class="col-md-6">
+                            <h6>Transaction Information</h6>
+                            <table class="table table-sm">
+                                <tr><td><strong>ID:</strong></td><td>${data.id}</td></tr>
+                                <tr><td><strong>Type:</strong></td><td><span class="badge bg-primary">${data.transaction_type}</span></td></tr>
+                                <tr><td><strong>Date:</strong></td><td>${new Date(data.created_at).toLocaleString()}</td></tr>
+                                <tr><td><strong>User:</strong></td><td>${data.user_name || 'System'}</td></tr>
+                                <tr><td><strong>Reference:</strong></td><td>${data.reference_id || 'N/A'}</td></tr>
+                            </table>
+                        </div>
+                        <div class="col-md-6">
+                            <h6>Stock Information</h6>
+                            <table class="table table-sm">
+                                <tr><td><strong>Product:</strong></td><td>${data.product_name || 'N/A'}</td></tr>
+                                <tr><td><strong>SKU:</strong></td><td>${data.sku || 'N/A'}</td></tr>
+                                <tr><td><strong>Location:</strong></td><td>${data.warehouse_name ? `${data.warehouse_name} - ${data.full_code}` : 'N/A'}</td></tr>
+                                <tr><td><strong>Quantity Change:</strong></td><td>${data.quantity_change}</td></tr>
+                                <tr><td><strong>Before:</strong></td><td>${data.quantity_before}</td></tr>
+                                <tr><td><strong>After:</strong></td><td>${data.quantity_after}</td></tr>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="row mt-3">
+                        <div class="col-12">
+                            <h6>Notes</h6>
+                            <p class="text-muted">${data.notes || 'No notes provided'}</p>
+                        </div>
+                    </div>
+                `;
+                
+                modal.show();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('Error loading transaction details');
+            });
+    }
+    
+    function editTransaction(transactionId) {
+        // Implementation for editing transactions
+        alert('Edit transaction functionality coming soon!');
+    }
+    
+    function saveTransaction() {
+        const form = document.getElementById('add-transaction-form');
+        const formData = {
+            transaction_type: document.getElementById('transaction-type').value,
+            stock_item_id: document.getElementById('stock-item-select').value,
+            quantity_change: parseInt(document.getElementById('quantity-change').value),
+            reference_id: document.getElementById('reference-id').value,
+            notes: document.getElementById('transaction-notes').value
+        };
+        
+        // Validate form
+        if (!formData.transaction_type || !formData.stock_item_id || !formData.quantity_change) {
+            alert('Please fill in all required fields');
+            return;
+        }
+        
+        // Send to API
+        fetch('/api/transactions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(formData)
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert('Error creating transaction: ' + data.error);
+            } else {
+                alert('Transaction created successfully!');
+                // Close modal and refresh
+                const modal = bootstrap.Modal.getInstance(document.getElementById('add-transaction-modal'));
+                modal.hide();
+                location.reload();
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error creating transaction');
+        });
+    }
+    
+    function exportTransactions() {
+        const visibleRows = filteredTransactions.filter(row => row.style.display !== 'none');
+        
+        if (visibleRows.length === 0) {
+            alert('No transactions to export. Please adjust your filters.');
+            return;
+        }
+        
+        // CSV Headers
+        const headers = ['Date/Time', 'Type', 'Product', 'SKU', 'Location', 'Quantity Change', 'Before', 'After', 'User', 'Notes'];
+        let csvContent = headers.join(',') + '\n';
+        
+        // CSV Data
+        visibleRows.forEach(row => {
+            const cells = row.querySelectorAll('td');
+            if (cells.length >= 9) {
+                const rowData = [
+                    `"${cells[0].textContent.trim()}"`,  // Date/Time
+                    `"${cells[1].textContent.trim()}"`,  // Type
+                    `"${cells[2].textContent.trim()}"`,  // Product
+                    `"${cells[2].querySelector('small') ? cells[2].querySelector('small').textContent.trim() : ''}"`,  // SKU
+                    `"${cells[3].textContent.trim()}"`,  // Location
+                    `"${cells[4].textContent.trim()}"`,  // Quantity Change
+                    `"${cells[5].textContent.trim()}"`,  // Before
+                    `"${cells[6].textContent.trim()}"`,  // After
+                    `"${cells[7].textContent.trim()}"`,  // User
+                    `"${cells[8].textContent.trim()}"`   // Notes
+                ];
+                csvContent += rowData.join(',') + '\n';
+            }
+        });
+        
+        // Download CSV
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        if (link.download !== undefined) {
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', `transactions_${new Date().toISOString().split('T')[0]}.csv`);
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Show success feedback
+            const originalText = exportBtn.innerHTML;
+            exportBtn.innerHTML = '<i class="fas fa-check"></i> Exported!';
+            exportBtn.classList.remove('btn-outline-secondary');
+            exportBtn.classList.add('btn-success');
+            setTimeout(() => {
+                exportBtn.innerHTML = originalText;
+                exportBtn.classList.remove('btn-success');
+                exportBtn.classList.add('btn-outline-secondary');
+            }, 2000);
+        }
+    }
+});
+</script>
+{% endblock %}

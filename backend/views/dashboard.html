@@ -110,17 +110,17 @@
                                 </td>
                                 <td>
                                     {% if item.locations and item.locations.warehouses %}
-                                        {{ item.locations.warehouses.name }} - {{ item.locations.aisle }}{{ item.locations.bin }}
+                                        {{ item.locations.warehouses.name }} - {{ item.locations.full_code }}
                                     {% else %}
                                         Unknown Location
                                     {% endif %}
                                 </td>
-                                <td>{{ item.qty_available }}</td>
+                                <td>{{ item.on_hand }}</td>
                                 <td>{{ item.qty_reserved }}</td>
                                 <td>
-                                    {% if item.qty_available == 0 %}
+                                    {% if item.on_hand == 0 %}
                                         <span class="badge bg-danger">Out of Stock</span>
-                                    {% elif item.qty_available < 10 %}
+                                    {% elif item.on_hand < 10 %}
                                         <span class="badge bg-warning">Low Stock</span>
                                     {% else %}
                                         <span class="badge bg-success">In Stock</span>

@@ -113,12 +113,13 @@
                         <th class="sortable" data-column="sku" data-type="text">
                             SKU <i class="fas fa-sort text-muted"></i>
                         </th>
-                        <th class="sortable" data-column="warehouse" data-type="text">
-                            Warehouse <i class="fas fa-sort text-muted"></i>
+                        <th class="sortable" data-column="bin" data-type="text">
+                            Bin <i class="fas fa-sort text-muted"></i>
                         </th>
                         <th class="sortable" data-column="location" data-type="text">
                             Location <i class="fas fa-sort text-muted"></i>
                         </th>
+
                         <th class="sortable" data-column="available" data-type="number">
                             Available <i class="fas fa-sort text-muted"></i>
                         </th>
@@ -140,12 +141,13 @@
                 <tbody id="stock-tbody">
                     {% for item in stock_items %}
                     <tr class="stock-row" 
-                        data-available="{{ item.qty_available }}"
-                        data-product-name="{{ (item.products.name if item.products else '')|lower }}"
-                        data-sku="{{ (item.products.sku if item.products else '')|lower }}"
-                        data-warehouse="{{ (item.locations.warehouses.name if item.locations and item.locations.warehouses else '')|lower }}"
-                        data-location="{{ (item.locations.aisle + item.locations.bin if item.locations else '')|lower }}"
-                        data-status="{% if item.qty_available == 0 %}out{% elif item.qty_available < 10 %}low{% else %}in{% endif %}">
+                                                    data-available="{{ item.on_hand }}"
+                            data-product-name="{{ (item.products.name if item.products else '')|lower }}"
+                            data-sku="{{ (item.products.sku if item.products else '')|lower }}"
+                            data-bin="{{ (item.locations.bin_code if item.locations else '')|lower }}"
+                            data-location="{{ (item.locations.location_code if item.locations else '')|lower }}"
+                            data-warehouse="{{ (item.locations.warehouses.name if item.locations and item.locations.warehouses else '')|lower }}"
+                            data-status="{% if item.on_hand == 0 %}out{% elif item.on_hand < 10 %}low{% else %}in{% endif %}">
                         <td>
                             <div class="form-check">
                                 <input class="form-check-input stock-checkbox" type="checkbox" value="{{ item.id }}" id="stock-{{ loop.index }}">
@@ -169,23 +171,24 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if item.locations and item.locations.warehouses %}
-                                {{ item.locations.warehouses.name }}
+                            {% if item.locations and item.locations.bin_code %}
+                                <span class="badge bg-primary">{{ item.locations.bin_code }}</span>
                             {% else %}
-                                Unknown Warehouse
+                                <span class="text-muted">N/A</span>
                             {% endif %}
                         </td>
                         <td>
-                            {% if item.locations %}
-                                <span class="badge bg-light text-dark">{{ item.locations.aisle }}{{ item.locations.bin }}</span>
+                            {% if item.locations and item.locations.location_code %}
+                                <span class="badge bg-secondary">{{ item.locations.location_code }}</span>
                             {% else %}
-                                N/A
+                                <span class="text-muted">N/A</span>
                             {% endif %}
                         </td>
+
                         <td>
-                            <span class="badge bg-{% if item.qty_available == 0 %}danger{% elif item.qty_available < 10 %}warning{% else %}success{% endif %}">
-                                {{ item.qty_available }}
-                            </span>
+                                                    <span class="badge bg-{% if item.on_hand == 0 %}danger{% elif item.on_hand < 10 %}warning{% else %}success{% endif %}">
+                            {{ item.on_hand }}
+                        </span>
                         </td>
                         <td>
                             {% if item.qty_reserved > 0 %}
@@ -194,7 +197,7 @@
                                 {{ item.qty_reserved }}
                             {% endif %}
                         </td>
-                        <td><strong>{{ item.qty_available + item.qty_reserved }}</strong></td>
+                        <td><strong>{{ item.on_hand + item.qty_reserved }}</strong></td>
                         <td>
                             {% if item.batch_id %}
                                 <div class="small">
@@ -210,9 +213,9 @@
                             {% endif %}
                         </td>
                         <td>
-                            {% if item.qty_available == 0 %}
-                                <span class="badge bg-danger">Out of Stock</span>
-                            {% elif item.qty_available < 10 %}
+                                                    {% if item.on_hand == 0 %}
+                            <span class="badge bg-danger">Out of Stock</span>
+                        {% elif item.on_hand < 10 %}
                                 <span class="badge bg-warning">Low Stock</span>
                             {% else %}
                                 <span class="badge bg-success">In Stock</span>
@@ -283,8 +286,9 @@
                     <ul class="dropdown-menu" id="stock-column-visibility-menu">
                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="product"> Product</label></li>
                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="sku"> SKU</label></li>
-                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="warehouse"> Warehouse</label></li>
+                        <li><label class="dropdown-item"><input type="checkbox" checked data-column="bin"> Bin</label></li>
                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="location"> Location</label></li>
+
                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="available"> Available</label></li>
                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="reserved"> Reserved</label></li>
                         <li><label class="dropdown-item"><input type="checkbox" checked data-column="total"> Total</label></li>
@@ -498,22 +502,23 @@ document.addEventListener('DOMContentLoaded', function() {
         stockFilteredRows = Array.from(stockRows).filter(row => {
             const productName = row.getAttribute('data-product-name') || '';
             const sku = row.getAttribute('data-sku') || '';
-            const warehouse = row.getAttribute('data-warehouse') || '';
+            const bin = row.getAttribute('data-bin') || '';
             const location = row.getAttribute('data-location') || '';
+            const warehouse = row.getAttribute('data-warehouse') || '';
             const status = row.getAttribute('data-status') || '';
             const available = parseInt(row.getAttribute('data-available')) || 0;
             
             const matchesSearch = !searchTerm || 
                 productName.includes(searchTerm) ||
                 sku.includes(searchTerm) ||
-                warehouse.includes(searchTerm) ||
+                bin.includes(searchTerm) ||
                 location.includes(searchTerm);
             
-            const matchesWarehouse = !warehouseTerm || warehouse.includes(warehouseTerm);
+            const matchesBin = !warehouseTerm || bin.includes(warehouseTerm) || location.includes(warehouseTerm) || warehouse.includes(warehouseTerm);
             const matchesStatus = !statusTerm || status === statusTerm;
             const matchesLowStock = !lowStockOnly || available < 10;
             
-            return matchesSearch && matchesWarehouse && matchesStatus && matchesLowStock;
+            return matchesSearch && matchesBin && matchesStatus && matchesLowStock;
         });
 
         // Reset to first page when filtering
@@ -560,7 +565,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
     function getStockCellValue(row, column, dataType) {
         const columnIndex = {
-            'product': 1, 'sku': 2, 'warehouse': 3, 'location': 4,
+            'product': 1, 'sku': 2, 'bin': 3, 'location': 4,
             'available': 5, 'reserved': 6, 'total': 7, 'batch_info': 8, 'status': 9
         };
         
@@ -578,7 +583,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Stock column visibility functions
     function toggleStockColumnVisibility(column, visible) {
         const columnIndex = {
-            'product': 1, 'sku': 2, 'warehouse': 3, 'location': 4,
+            'product': 1, 'sku': 2, 'bin': 3, 'location': 4,
             'available': 5, 'reserved': 6, 'total': 7, 'batch_info': 8, 'status': 9
         };
         
@@ -866,13 +871,13 @@ document.addEventListener('DOMContentLoaded', function() {
         const selectedRows = Array.from(selectedCheckboxes).map(cb => cb.closest('.stock-row')).filter(row => row);
         
         // CSV Headers
-        const headers = ['Product', 'SKU', 'Warehouse', 'Location', 'Available', 'Reserved', 'Total', 'Batch ID', 'Expiry Date', 'Status'];
+        const headers = ['Product', 'SKU', 'Bin', 'Location', 'Available', 'Reserved', 'Total', 'Batch ID', 'Expiry Date', 'Status'];
         let csvContent = headers.join(',') + '\n';
 
         // CSV Data
         selectedRows.forEach(row => {
             const cells = row.querySelectorAll('td');
-            if (cells.length >= 10) { // Account for checkbox column and new batch column
+            if (cells.length >= 11) { // Account for checkbox column and new location column
                 // Extract batch info from the batch info cell
                 const batchCell = cells[8];
                 const batchBadge = batchCell.querySelector('.badge');
@@ -883,7 +888,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 const rowData = [
                     `"${cells[1].textContent.trim()}"`,  // Product (skip checkbox column)
                     `"${cells[2].textContent.trim()}"`,  // SKU
-                    `"${cells[3].textContent.trim()}"`,  // Warehouse
+                    `"${cells[3].textContent.trim()}"`,  // Bin
                     `"${cells[4].textContent.trim()}"`,  // Location
                     `"${cells[5].textContent.trim()}"`,  // Available
                     `"${cells[6].textContent.trim()}"`,  // Reserved
@@ -945,15 +950,15 @@ document.addEventListener('DOMContentLoaded', function() {
         }
 
         // CSV Headers
-        const headers = ['Product', 'SKU', 'Warehouse', 'Location', 'Available', 'Reserved', 'Total', 'Batch ID', 'Expiry Date', 'Status'];
+        const headers = ['Product', 'SKU', 'Bin', 'Location', 'Available', 'Reserved', 'Total', 'Batch ID', 'Expiry Date', 'Status'];
         let csvContent = headers.join(',') + '\n';
 
         // CSV Data
         visibleRows.forEach(row => {
             const cells = row.querySelectorAll('td');
-            if (cells.length >= 9) {
+            if (cells.length >= 10) {
                 // Extract batch info from the batch info cell
-                const batchCell = cells[7];
+                const batchCell = cells[8];
                 const batchBadge = batchCell.querySelector('.badge');
                 const expirySmall = batchCell.querySelector('small');
                 const batchId = batchBadge ? batchBadge.textContent.trim() : '';

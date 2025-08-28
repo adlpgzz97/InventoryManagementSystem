@@ -144,10 +144,10 @@
                                 <div class="d-flex justify-content-between align-items-center">
                                     <div>
                                         <strong>{{ alert.product_name }}</strong> ({{ alert.sku }})
-                                        <br><small class="text-muted">{{ alert.location }} • Available: {{ alert.qty_available }}</small>
+                                        <br><small class="text-muted">{{ alert.location }} • Available: {{ alert.on_hand }}</small>
                                     </div>
                                     <div class="text-end">
-                                        <span class="badge bg-warning">{{ alert.qty_available }} left</span>
+                                        <span class="badge bg-warning">{{ alert.on_hand }} left</span>
                                     </div>
                                 </div>
                             </div>
@@ -355,7 +355,7 @@
                                     {{ item.location }}
                                 </td>
                                 <td>
-                                    <span class="fw-bold">{{ item.qty_available }}</span>
+                                    <span class="fw-bold">{{ item.on_hand }}</span>
                                 </td>
                                 <td>{{ item.qty_reserved }}</td>
                                 <td>

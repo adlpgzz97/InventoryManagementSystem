@@ -100,6 +100,52 @@
             border-bottom: 2px solid #dee2e6;
         }
         
+        /* Floating Scanner Button */
+        .floating-scanner-btn {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            z-index: 1000;
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+            border: none;
+            color: white;
+            font-size: 24px;
+            box-shadow: 0 4px 12px rgba(220, 53, 69, 0.4);
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .floating-scanner-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(220, 53, 69, 0.6);
+            color: white;
+        }
+        
+        .floating-scanner-btn.active {
+            background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4);
+        }
+        
+        .floating-scanner-btn.active:hover {
+            box-shadow: 0 6px 16px rgba(40, 167, 69, 0.6);
+        }
+        
+        /* Mobile responsiveness for floating scanner button */
+        @media (max-width: 768px) {
+            .floating-scanner-btn {
+                bottom: 15px;
+                left: 15px;
+                width: 55px;
+                height: 55px;
+                font-size: 20px;
+            }
+        }
+        
         .pagination .page-link {
             border-radius: 0.375rem;
             margin: 0 2px;
@@ -170,6 +216,11 @@
                             </a>
                         </li>
                         <li class="nav-item">
+                            <a class="nav-link {% if request.endpoint == 'warehouses' %}active{% endif %}" href="{{ url_for('warehouses') }}">
+                                <i class="fas fa-warehouse me-2"></i> Warehouses
+                            </a>
+                        </li>
+                        <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'products' %}active{% endif %}" href="{{ url_for('products') }}">
                                 <i class="fas fa-box me-2"></i> Products
                             </a>
@@ -180,10 +231,11 @@
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link {% if request.endpoint == 'warehouses' %}active{% endif %}" href="{{ url_for('warehouses') }}">
-                                <i class="fas fa-warehouse me-2"></i> Warehouses
+                            <a class="nav-link {% if request.endpoint == 'transactions' %}active{% endif %}" href="{{ url_for('transactions') }}">
+                                <i class="fas fa-exchange-alt me-2"></i> Transactions
                             </a>
                         </li>
+
                         <li class="nav-item">
                             <a class="nav-link {% if request.endpoint == 'reports' %}active{% endif %}" href="{{ url_for('reports') }}">
                                 <i class="fas fa-chart-bar me-2"></i> Reports
@@ -201,8 +253,8 @@
                             </a>
                         </li>
                         <li class="nav-item">
-                            <a class="nav-link" href="#" title="Coming in Phase 2">
-                                <i class="fas fa-truck me-2"></i> Suppliers <small class="text-muted">(Soon)</small>
+                            <a class="nav-link {% if request.endpoint == 'suppliers' %}active{% endif %}" href="{{ url_for('suppliers') }}">
+                                <i class="fas fa-truck me-2"></i> Suppliers
                             </a>
                         </li>
                         {% endif %}
@@ -233,6 +285,11 @@
                 
                 {% if current_user.is_authenticated %}
             </main>
+            
+            <!-- Floating Scanner Button -->
+            <a href="{{ url_for('scanner') }}" class="floating-scanner-btn {% if request.endpoint == 'scanner' %}active{% endif %}" title="Warehouse Scanner">
+                <i class="fas fa-qrcode"></i>
+            </a>
             {% endif %}
         </div>
     </div>
@@ -432,10 +489,8 @@
                         });
                     }
                     
-                    // Initialize warehouse-specific functionality if it's a warehouse modal
-                    if (itemType === 'warehouse') {
-                        initializeWarehouseModal(true); // true indicates edit mode
-                    }
+                    // Warehouse modal functionality is now handled within the modal HTML files
+                    // No additional initialization needed
                 })
                 .catch(error => {
                     editModalBody.innerHTML = `<div class="alert alert-danger">Error loading form: ${error.message}</div>`;
@@ -464,10 +519,8 @@
                         });
                     }
                     
-                    // Initialize warehouse-specific functionality if it's a warehouse modal
-                    if (itemType === 'warehouse') {
-                        initializeWarehouseModal();
-                    }
+                    // Warehouse modal functionality is now handled within the modal HTML files
+                    // No additional initialization needed
                 })
                 .catch(error => {
                     editModalBody.innerHTML = `<div class="alert alert-danger">Error loading form: ${error.message}</div>`;
@@ -699,8 +752,9 @@
             }
         }
 
-        // Initialize warehouse modal functionality
-        function initializeWarehouseModal(isEditMode = false) {
+        // DEPRECATED: Initialize warehouse modal functionality
+        // This function has been replaced by the JavaScript in the individual modal HTML files
+        // function initializeWarehouseModal(isEditMode = false) {
             let aisles = [];
             let nextAisleLetter = 'A';
             let occupiedLocations = new Set();
@@ -1043,7 +1097,7 @@
                     }
                 });
             }
-        }
+        // }
     });
     </script>
     {% block scripts %}{% endblock %}

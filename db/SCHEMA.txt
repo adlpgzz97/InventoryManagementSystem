@@ -1,0 +1,318 @@
+INVENTORY DATABASE SCHEMA OVERVIEW
+==================================================
+
+Total Tables: 97
+Total Columns: 97
+Total Foreign Keys: 11
+Total Rows: 520
+
+TABLE: BINS
+------------------------------
+Rows: 50
+Columns: 5
+Foreign Keys: 1
+
+COLUMNS:
+  id (uuid) NOT NULL DEFAULT uuid_generate_v4() [PRIMARY KEY]
+  code (character varying) NOT NULL
+  location_id (uuid) NULL [FK -> locations.id]
+  created_at (timestamp without time zone) NULL DEFAULT now()
+  updated_at (timestamp without time zone) NULL DEFAULT now()
+
+FOREIGN KEYS:
+  location_id -> locations.id (bins_location_id_fkey)
+
+CHECK CONSTRAINTS:
+  chk_bins_code_format: ((code)::text ~ &#39;^B[0-9]+$&#39;::text)
+  2200_33160_1_not_null: id IS NOT NULL
+  2200_33160_2_not_null: code IS NOT NULL
+
+==================================================
+
+TABLE: LOCATIONS
+------------------------------
+Rows: 374
+Columns: 3
+Foreign Keys: 1
+
+COLUMNS:
+  id (uuid) NOT NULL DEFAULT uuid_generate_v4() [PRIMARY KEY]
+  warehouse_id (uuid) NULL [FK -> warehouses.id]
+  full_code (character varying) NULL
+
+FOREIGN KEYS:
+  warehouse_id -> warehouses.id (locations_warehouse_id_fkey)
+
+CHECK CONSTRAINTS:
+  2200_32848_1_not_null: id IS NOT NULL
+
+==================================================
+
+TABLE: ORDERS
+------------------------------
+Rows: 0
+Columns: 4
+
+COLUMNS:
+  id (uuid) NOT NULL DEFAULT uuid_generate_v4() [PRIMARY KEY]
+  client_id (uuid) NULL
+  status (text) NOT NULL
+  created_at (timestamp without time zone) NULL DEFAULT now()
+
+CHECK CONSTRAINTS:
+  orders_status_check: (status = ANY (ARRAY[&#39;open&#39;::text, &#39;fulfilled&#39;::text, &#39;cancelled&#39;::text]))
+  2200_32883_1_not_null: id IS NOT NULL
+  2200_32883_3_not_null: status IS NOT NULL
+
+==================================================
+
+TABLE: PRODUCT_SUPPLIERS
+------------------------------
+Rows: 0
+Columns: 9
+Foreign Keys: 2
+
+COLUMNS:
+  id (uuid) NOT NULL DEFAULT uuid_generate_v4() [PRIMARY KEY]
+  product_id (uuid) NULL [FK -> products.id]
+  supplier_id (uuid) NULL [FK -> suppliers.id]
+  supplier_sku (text) NULL
+  unit_cost (numeric) NULL
+  lead_time_days (integer) NULL
+  minimum_order_quantity (integer) NULL
+  is_preferred (boolean) NULL DEFAULT false
+  created_at (timestamp without time zone) NULL DEFAULT now()
+
+FOREIGN KEYS:
+  product_id -> products.id (product_suppliers_product_id_fkey)
+  supplier_id -> suppliers.id (product_suppliers_supplier_id_fkey)
+
+CHECK CONSTRAINTS:
+  2200_33213_1_not_null: id IS NOT NULL
+
+==================================================
+
+TABLE: PRODUCTS
+------------------------------
+Rows: 17
+Columns: 10
+
+COLUMNS:
+  id (uuid) NOT NULL DEFAULT uuid_generate_v4() [PRIMARY KEY]
+  sku (text) NOT NULL
+  name (text) NOT NULL
+  description (text) NULL
+  dimensions (text) NULL
+  weight (numeric) NULL
+  picture_url (text) NULL
+  barcode (text) NULL
+  created_at (timestamp without time zone) NULL DEFAULT now()
+  batch_tracked (boolean) NULL DEFAULT false
+
+CHECK CONSTRAINTS:
+  2200_32829_1_not_null: id IS NOT NULL
+  2200_32829_2_not_null: sku IS NOT NULL
+  2200_32829_3_not_null: name IS NOT NULL
+
+==================================================
+
+TABLE: REPLENISHMENT_POLICIES
+------------------------------
+Rows: 17
+Columns: 9
+Foreign Keys: 1
+
+COLUMNS:
+  id (uuid) NOT NULL DEFAULT uuid_generate_v4() [PRIMARY KEY]
+  product_id (uuid) NULL [FK -> products.id]
+  forecasting_mode (text) NOT NULL DEFAULT &#39;automatic&#39;::text
+  manual_reorder_point (integer) NULL
+  manual_safety_stock (integer) NULL
+  manual_lead_time_days (integer) NULL DEFAULT 7
+  forecasting_notes (text) NULL
+  created_at (timestamp without time zone) NULL DEFAULT now()
+  updated_at (timestamp without time zone) NULL DEFAULT now()
+
+FOREIGN KEYS:
+  product_id -> products.id (replenishment_policies_product_id_fkey)
+
+CHECK CONSTRAINTS:
+  replenishment_policies_forecasting_mode_check: (forecasting_mode = ANY (ARRAY[&#39;automatic&#39;::text, &#39;manual&#39;::text, &#39;hybrid&#39;::text]))
+  2200_33184_1_not_null: id IS NOT NULL
+  2200_33184_3_not_null: forecasting_mode IS NOT NULL
+
+==================================================
+
+TABLE: RESERVATIONS
+------------------------------
+Rows: 0
+Columns: 6
+Foreign Keys: 2
+
+COLUMNS:
+  id (uuid) NOT NULL DEFAULT uuid_generate_v4() [PRIMARY KEY]
+  order_id (uuid) NULL [FK -> orders.id]
+  product_id (uuid) NULL [FK -> products.id]
+  qty (integer) NOT NULL
+  status (text) NOT NULL
+  created_at (timestamp without time zone) NULL DEFAULT now()
+
+FOREIGN KEYS:
+  order_id -> orders.id (reservations_order_id_fkey)
+  product_id -> products.id (reservations_product_id_fkey)
+
+CHECK CONSTRAINTS:
+  reservations_status_check: (status = ANY (ARRAY[&#39;reserved&#39;::text, &#39;picked&#39;::text, &#39;cancelled&#39;::text]))
+  2200_32893_1_not_null: id IS NOT NULL
+  2200_32893_4_not_null: qty IS NOT NULL
+  2200_32893_5_not_null: status IS NOT NULL
+
+==================================================
+
+TABLE: STOCK_ITEMS
+------------------------------
+Rows: 17
+Columns: 9
+Foreign Keys: 2
+
+COLUMNS:
+  id (uuid) NOT NULL DEFAULT uuid_generate_v4() [PRIMARY KEY]
+  product_id (uuid) NULL [FK -> products.id]
+  on_hand (integer) NOT NULL DEFAULT 0
+  qty_reserved (integer) NOT NULL DEFAULT 0
+  batch_id (text) NULL
+  expiry_date (date) NULL
+  received_date (timestamp without time zone) NULL DEFAULT now()
+  created_at (timestamp without time zone) NULL DEFAULT now()
+  bin_id (uuid) NOT NULL [FK -> bins.id]
+
+FOREIGN KEYS:
+  product_id -> products.id (stock_items_product_id_fkey)
+  bin_id -> bins.id (stock_items_bin_id_fkey)
+
+CHECK CONSTRAINTS:
+  stock_items_qty_available_check: (on_hand &gt;= 0)
+  stock_items_qty_reserved_check: (qty_reserved &gt;= 0)
+  2200_32863_1_not_null: id IS NOT NULL
+  2200_32863_4_not_null: on_hand IS NOT NULL
+  2200_32863_5_not_null: qty_reserved IS NOT NULL
+  2200_32863_10_not_null: bin_id IS NOT NULL
+
+==================================================
+
+TABLE: STOCK_ITEMS_WITH_LOCATION
+------------------------------
+Rows: 17
+Columns: 14
+
+COLUMNS:
+  id (uuid) NULL
+  product_id (uuid) NULL
+  bin_id (uuid) NULL
+  on_hand (integer) NULL
+  qty_reserved (integer) NULL
+  batch_id (text) NULL
+  expiry_date (date) NULL
+  received_date (timestamp without time zone) NULL
+  created_at (timestamp without time zone) NULL
+  bin_code (character varying) NULL
+  location_id (uuid) NULL
+  location_code (character varying) NULL
+  warehouse_id (uuid) NULL
+  warehouse_name (text) NULL
+
+==================================================
+
+TABLE: STOCK_TRANSACTIONS
+------------------------------
+Rows: 21
+Columns: 10
+Foreign Keys: 2
+
+COLUMNS:
+  id (uuid) NOT NULL DEFAULT uuid_generate_v4() [PRIMARY KEY]
+  stock_item_id (uuid) NOT NULL [FK -> stock_items.id]
+  transaction_type (text) NOT NULL
+  quantity_change (integer) NOT NULL
+  quantity_before (integer) NOT NULL
+  quantity_after (integer) NOT NULL
+  reference_id (uuid) NULL
+  notes (text) NULL
+  user_id (uuid) NULL [FK -> users.id]
+  created_at (timestamp without time zone) NULL DEFAULT now()
+
+FOREIGN KEYS:
+  stock_item_id -> stock_items.id (stock_transactions_stock_item_id_fkey)
+  user_id -> users.id (stock_transactions_user_id_fkey)
+
+CHECK CONSTRAINTS:
+  stock_transactions_transaction_type_check: (transaction_type = ANY (ARRAY[&#39;receive&#39;::text, &#39;ship&#39;::text, &#39;adjust&#39;::text, &#39;transfer&#39;::text, &#39;reserve&#39;::text, &#39;release&#39;::text]))
+  2200_33082_1_not_null: id IS NOT NULL
+  2200_33082_2_not_null: stock_item_id IS NOT NULL
+  2200_33082_3_not_null: transaction_type IS NOT NULL
+  2200_33082_4_not_null: quantity_change IS NOT NULL
+  2200_33082_5_not_null: quantity_before IS NOT NULL
+  2200_33082_6_not_null: quantity_after IS NOT NULL
+
+==================================================
+
+TABLE: SUPPLIERS
+------------------------------
+Rows: 0
+Columns: 9
+
+COLUMNS:
+  id (uuid) NOT NULL DEFAULT uuid_generate_v4() [PRIMARY KEY]
+  name (text) NOT NULL
+  contact_person (text) NULL
+  email (text) NULL
+  phone (text) NULL
+  address (text) NULL
+  website (text) NULL
+  payment_terms (text) NULL
+  created_at (timestamp without time zone) NULL DEFAULT now()
+
+CHECK CONSTRAINTS:
+  2200_33204_1_not_null: id IS NOT NULL
+  2200_33204_2_not_null: name IS NOT NULL
+
+==================================================
+
+TABLE: USERS
+------------------------------
+Rows: 3
+Columns: 5
+
+COLUMNS:
+  id (uuid) NOT NULL DEFAULT uuid_generate_v4() [PRIMARY KEY]
+  username (text) NOT NULL
+  password_hash (text) NOT NULL
+  role (text) NOT NULL
+  created_at (timestamp without time zone) NULL DEFAULT now()
+
+CHECK CONSTRAINTS:
+  users_role_check: (role = ANY (ARRAY[&#39;admin&#39;::text, &#39;manager&#39;::text, &#39;worker&#39;::text]))
+  2200_32817_1_not_null: id IS NOT NULL
+  2200_32817_2_not_null: username IS NOT NULL
+  2200_32817_3_not_null: password_hash IS NOT NULL
+  2200_32817_4_not_null: role IS NOT NULL
+
+==================================================
+
+TABLE: WAREHOUSES
+------------------------------
+Rows: 4
+Columns: 4
+
+COLUMNS:
+  id (uuid) NOT NULL DEFAULT uuid_generate_v4() [PRIMARY KEY]
+  name (text) NOT NULL
+  address (text) NULL
+  code (character varying) NULL
+
+CHECK CONSTRAINTS:
+  2200_32840_1_not_null: id IS NOT NULL
+  2200_32840_2_not_null: name IS NOT NULL
+
+==================================================
+

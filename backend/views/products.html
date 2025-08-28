@@ -1119,6 +1119,10 @@ document.addEventListener('DOMContentLoaded', function() {
      }
 
      function showModalAndLoadData(productId, productName) {
+         // Set the current product ID globally
+         window.currentProductId = productId;
+         console.log('Set currentProductId to:', productId);
+         
          // Show loading state
          const loadingSpinner = document.getElementById('loading-spinner');
          const productContent = document.getElementById('product-content');
@@ -1150,9 +1154,21 @@ document.addEventListener('DOMContentLoaded', function() {
              modalContainer.setAttribute('aria-hidden', 'true');
 
              // Fetch modal content
-             fetch(`/product/details`)
-                 .then(response => response.text())
+             fetch(`/product/details`, {
+                 credentials: 'same-origin', // Include cookies
+                 headers: {
+                     'Accept': 'text/html',
+                     'Content-Type': 'text/html'
+                 }
+             })
+                 .then(response => {
+                     if (!response.ok) {
+                         throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                     }
+                     return response.text();
+                 })
                  .then(html => {
+                     console.log('Modal HTML received, length:', html.length);
                      modalContainer.innerHTML = html;
                      document.body.appendChild(modalContainer);
                      productDetailsModal = new bootstrap.Modal(modalContainer);
@@ -1172,7 +1188,90 @@ document.addEventListener('DOMContentLoaded', function() {
                          });
                      }
                      
-                     resolve();
+                                                                 // Fix tab title visibility issue - More robust approach
+                      const tabButtons = modalContainer.querySelectorAll('.nav-link');
+                      const originalTabTexts = {};
+                      
+                      console.log('Setting up tab text preservation for', tabButtons.length, 'tabs');
+                      
+                      // Store original tab text and create backup spans
+                      tabButtons.forEach(button => {
+                          const originalText = button.innerHTML;
+                          originalTabTexts[button.id] = originalText;
+                          console.log('Stored original text for', button.id, ':', originalText);
+                          
+                          // Create a backup span with the original content
+                          const backupSpan = document.createElement('span');
+                          backupSpan.innerHTML = originalText;
+                          backupSpan.style.display = 'none';
+                          backupSpan.id = `backup-${button.id}`;
+                          button.appendChild(backupSpan);
+                          
+                          // Override the innerHTML setter to prevent clearing
+                          let currentText = originalText;
+                          Object.defineProperty(button, 'innerHTML', {
+                              get: function() {
+                                  return currentText;
+                              },
+                              set: function(value) {
+                                  // Only allow setting if it's not empty or if it's the original text
+                                  if (value && value.trim() !== '' && value !== originalText) {
+                                      currentText = value;
+                                  } else if (value.trim() === '') {
+                                      // If trying to clear, restore original
+                                      currentText = originalText;
+                                      console.log('Prevented clearing of tab text for:', button.id);
+                                  }
+                                  // Update the actual DOM
+                                  button.textContent = currentText;
+                                  // Restore the icon and formatting
+                                  const iconMatch = originalText.match(/<i[^>]*>.*?<\/i>/);
+                                  if (iconMatch) {
+                                      button.innerHTML = currentText.replace(iconMatch[0], '') + iconMatch[0];
+                                  }
+                              }
+                          });
+                          
+                          // Add click handler that forces text preservation
+                          button.addEventListener('click', function(e) {
+                              console.log('Tab clicked:', this.id);
+                              
+                              // Force restore original text after a short delay
+                              setTimeout(() => {
+                                  if (this.innerHTML.trim() === '' || !this.innerHTML.includes('</i>')) {
+                                      console.log('Forcing text restoration for:', this.id);
+                                      this.innerHTML = originalTabTexts[this.id];
+                                  }
+                              }, 10);
+                          });
+                      });
+                      
+                      // Add CSS to prevent Bootstrap from hiding tab text
+                      const style = document.createElement('style');
+                      style.textContent = `
+                          #product-details-modal .nav-link {
+                              opacity: 1 !important;
+                              visibility: visible !important;
+                              color: inherit !important;
+                          }
+                          #product-details-modal .nav-link.active {
+                              opacity: 1 !important;
+                              visibility: visible !important;
+                              color: inherit !important;
+                          }
+                          #product-details-modal .nav-link:not(.active) {
+                              opacity: 0.7 !important;
+                              visibility: visible !important;
+                              color: inherit !important;
+                          }
+                          #product-details-modal .nav-link i {
+                              display: inline-block !important;
+                              visibility: visible !important;
+                          }
+                      `;
+                      document.head.appendChild(style);
+                      
+                      resolve();
                  })
                  .catch(error => {
                      console.error('Error creating modal:', error);
@@ -1182,8 +1281,159 @@ document.addEventListener('DOMContentLoaded', function() {
      }
 
      function loadProductDetails(productId) {
-         fetch(`/api/product/${productId}/details`)
-             .then(response => response.json())
+         fetch(`/api/product/${productId}/details`, {
+             credentials: 'same-origin', // Include cookies
+             headers: {
+                 'Accept': 'application/json',
+                 'Content-Type': 'application/json'
+             }
+         })
+             .then(response => {
+                 console.log('Response status:', response.status);
+                 console.log('Response headers:', response.headers);
+                 
+                 // Check if we got redirected to login page
+                 if (response.url && response.url.includes('/login')) {
+                     throw new Error('Authentication required. Please log in again.');
+                 }
+                 
+                 if (!response.ok) {
+                     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                 }
+                 
+                 return response.text().then(text => {
+                     console.log('Raw response text length:', text.length);
+                     console.log('Raw response text (first 200 chars):', text.substring(0, 200));
+                     console.log('Raw response text (last 200 chars):', text.substring(Math.max(0, text.length - 200)));
+                     console.log('Text contains BOM:', text.charCodeAt(0) === 0xFEFF);
+                     console.log('First 10 character codes:', Array.from(text.substring(0, 10)).map(c => c.charCodeAt(0)));
+                     
+                     // Check if response is HTML (login page)
+                     if (text.trim().startsWith('<!DOCTYPE html>') || text.includes('<title>Login')) {
+                         throw new Error('Authentication required. Please log in again.');
+                     }
+                     
+                                     // Try to clean the text
+                let cleanedText = text.trim();
+
+                // Remove BOM if present
+                if (cleanedText.charCodeAt(0) === 0xFEFF) {
+                    cleanedText = cleanedText.substring(1);
+                    console.log('Removed BOM from response');
+                }
+
+                // Additional cleaning - remove any non-printable characters except newlines and tabs
+                cleanedText = cleanedText.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+                
+                // More aggressive cleaning - remove any characters that might cause JSON parse issues
+                cleanedText = cleanedText.replace(/[\u200B-\u200D\uFEFF]/g, ''); // Remove zero-width spaces and BOM
+                cleanedText = cleanedText.replace(/[\u2028\u2029]/g, ''); // Remove line/paragraph separators
+                
+                console.log('Cleaned text length:', cleanedText.length);
+                console.log('Cleaned text (first 200 chars):', cleanedText.substring(0, 200));
+                console.log('Cleaned text (last 200 chars):', cleanedText.substring(Math.max(0, cleanedText.length - 200)));
+                
+                // Log character codes around the error position (line 6, column 22)
+                const lines = cleanedText.split('\n');
+                if (lines.length >= 6) {
+                    const line6 = lines[5]; // 0-indexed, so line 6 is at index 5
+                    console.log('Line 6 content:', line6);
+                    console.log('Line 6 character codes:', Array.from(line6).map((c, i) => `${i}: ${c.charCodeAt(0)} (${c})`));
+                    if (line6.length >= 22) {
+                        console.log('Character at position 22:', line6.charAt(21), 'code:', line6.charCodeAt(21));
+                        console.log('Characters around position 22:', line6.substring(18, 25));
+                    }
+                }
+
+                // Check if the text looks like JSON
+                console.log('Text starts with {:', cleanedText.trim().startsWith('{'));
+                console.log('Text ends with }:', cleanedText.trim().endsWith('}'));
+                console.log('Text contains balanced braces:', (cleanedText.match(/\{/g) || []).length === (cleanedText.match(/\}/g) || []).length);
+
+                // Additional debugging - check for any non-ASCII characters
+                const nonAsciiChars = [];
+                for (let i = 0; i < cleanedText.length; i++) {
+                    const charCode = cleanedText.charCodeAt(i);
+                    if (charCode > 127) {
+                        nonAsciiChars.push({ position: i, char: cleanedText[i], code: charCode });
+                    }
+                }
+                if (nonAsciiChars.length > 0) {
+                    console.log('Non-ASCII characters found:', nonAsciiChars);
+                }
+
+                // Try to identify any problematic characters by checking each character
+                console.log('First 50 character codes:', Array.from(cleanedText.substring(0, 50)).map((c, i) => `${i}: ${c.charCodeAt(0)} (${c})`));
+                console.log('Last 50 character codes:', Array.from(cleanedText.substring(Math.max(0, cleanedText.length - 50))).map((c, i) => `${cleanedText.length - 50 + i}: ${c.charCodeAt(0)} (${c})`));
+
+                try {
+                    return JSON.parse(cleanedText);
+                } catch (parseError) {
+                    console.error('JSON parse error:', parseError);
+                    console.error('Error position - line:', parseError.lineNumber, 'column:', parseError.columnNumber);
+                    console.error('Full response text:', text);
+                    console.error('Cleaned response text:', cleanedText);
+                    
+                    // Try to identify the problematic character
+                    if (parseError.lineNumber && parseError.columnNumber) {
+                        const lines = cleanedText.split('\n');
+                        const lineIndex = parseError.lineNumber - 1;
+                        if (lines[lineIndex]) {
+                            const line = lines[lineIndex];
+                            const charIndex = parseError.columnNumber - 1;
+                            if (line[charIndex]) {
+                                console.error('Problematic character:', line[charIndex], 'code:', line.charCodeAt(charIndex));
+                                console.error('Context around error:', line.substring(Math.max(0, charIndex - 5), charIndex + 5));
+                            }
+                        }
+                    }
+                    
+                    // Try alternative parsing approaches
+                    console.log('Attempting alternative parsing...');
+                    
+                    // Try parsing with eval (less safe but might work)
+                    try {
+                        console.log('Trying eval parsing...');
+                        const parsed = eval('(' + cleanedText + ')');
+                        console.log('Eval parsing succeeded:', parsed);
+                        return parsed;
+                    } catch (evalError) {
+                        console.error('Eval parsing failed:', evalError);
+                    }
+                    
+                    // Try removing all whitespace and parsing
+                    try {
+                        console.log('Trying compact parsing...');
+                        const compact = cleanedText.replace(/\s+/g, '');
+                        const parsed = JSON.parse(compact);
+                        console.log('Compact parsing succeeded:', parsed);
+                        return parsed;
+                    } catch (compactError) {
+                        console.error('Compact parsing failed:', compactError);
+                    }
+                    
+                    // Final fallback - try to manually extract the JSON structure
+                    try {
+                        console.log('Trying manual JSON extraction...');
+                        // Find the first { and last } to extract just the JSON part
+                        const firstBrace = cleanedText.indexOf('{');
+                        const lastBrace = cleanedText.lastIndexOf('}');
+                        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+                            const jsonPart = cleanedText.substring(firstBrace, lastBrace + 1);
+                            console.log('Extracted JSON part length:', jsonPart.length);
+                            console.log('Extracted JSON part (first 200 chars):', jsonPart.substring(0, 200));
+                            const parsed = JSON.parse(jsonPart);
+                            console.log('Manual extraction succeeded:', parsed);
+                            return parsed;
+                        }
+                    } catch (manualError) {
+                        console.error('Manual extraction failed:', manualError);
+                    }
+                    
+                    throw new Error('Invalid JSON response from server');
+                }
+                 });
+             })
              .then(data => {
                  if (data.error) {
                      throw new Error(data.error);
@@ -1192,7 +1442,15 @@ document.addEventListener('DOMContentLoaded', function() {
              })
              .catch(error => {
                  console.error('Error loading product details:', error);
-                 alert('Error loading product details: ' + error.message);
+                 
+                 if (error.message.includes('Authentication required')) {
+                     // Show a more user-friendly message and redirect to login
+                     if (confirm('Your session has expired. Would you like to log in again?')) {
+                         window.location.href = '/login';
+                     }
+                 } else {
+                     alert('Error loading product details: ' + error.message);
+                 }
              });
      }
 
@@ -1207,7 +1465,7 @@ document.addEventListener('DOMContentLoaded', function() {
          // Update summary cards
          document.getElementById('available-stock').textContent = forecasting.current_stock;
          document.getElementById('total-stock').textContent = data.summary.total_locations > 0 ? 
-             data.stock_locations.reduce((sum, loc) => sum + loc.qty_available + loc.qty_reserved, 0) : 0;
+             data.stock_locations.reduce((sum, loc) => sum + loc.on_hand + loc.qty_reserved, 0) : 0;
          
          const daysOfStock = forecasting.days_of_stock;
          document.getElementById('days-of-stock').textContent = daysOfStock === Infinity ? '∞' : Math.round(daysOfStock);
@@ -1237,6 +1495,9 @@ document.addEventListener('DOMContentLoaded', function() {
          // Populate forecasting data
          populateForecastingData(data.forecasting);
 
+         // Initialize forecasting controls
+         initializeForecastingControls();
+
          // Populate alerts
          populateAlerts(data);
 
@@ -1262,7 +1523,7 @@ document.addEventListener('DOMContentLoaded', function() {
              row.innerHTML = `
                  <td>${location.warehouse_name || 'Unknown'}</td>
                  <td>${location.aisle}${location.bin}</td>
-                 <td><span class="badge bg-success">${location.qty_available}</span></td>
+                 <td><span class="badge bg-success">${location.on_hand}</span></td>
                  <td><span class="badge bg-warning">${location.qty_reserved}</span></td>
                  <td>${location.batch_id || 'N/A'}</td>
                  <td>${location.expiry_date ? new Date(location.expiry_date).toLocaleDateString() : 'N/A'}</td>
@@ -1314,6 +1575,7 @@ document.addEventListener('DOMContentLoaded', function() {
          document.getElementById('lead-time').textContent = `${forecasting.lead_time_days} days`;
          document.getElementById('safety-stock').textContent = `${Math.round(forecasting.safety_stock)} units`;
          document.getElementById('reorder-point').textContent = `${Math.round(forecasting.reorder_point)} units`;
+         document.getElementById('calculation-mode').textContent = forecasting.calculation_mode || 'Automatic';
 
          // Generate recommendations
          generateRecommendations(forecasting);
@@ -1368,6 +1630,196 @@ document.addEventListener('DOMContentLoaded', function() {
          `).join('');
      }
 
+     // Initialize forecasting mode controls
+     function initializeForecastingControls() {
+         console.log('Initializing forecasting controls...');
+         const modeToggle = document.getElementById('forecasting-mode-toggle');
+         const manualSection = document.getElementById('manual-override-section');
+         const saveButton = document.getElementById('save-forecasting-settings');
+         const resetButton = document.getElementById('reset-forecasting-settings');
+         const switchToAutomaticButton = document.getElementById('switch-to-automatic');
+         
+         console.log('Mode toggle found:', !!modeToggle);
+         console.log('Manual section found:', !!manualSection);
+         console.log('Save button found:', !!saveButton);
+         console.log('Reset button found:', !!resetButton);
+         console.log('Switch to automatic button found:', !!switchToAutomaticButton);
+         
+         if (!modeToggle) {
+             console.error('Mode toggle not found!');
+             return;
+         }
+         
+         // Handle mode changes - listen to radio button changes
+         const radioButtons = modeToggle.querySelectorAll('input[type="radio"]');
+         console.log('Found radio buttons:', radioButtons.length);
+         radioButtons.forEach((radio, index) => {
+             console.log(`Radio button ${index}:`, radio.id, radio.value);
+             radio.addEventListener('change', function(e) {
+                 console.log('Radio button changed:', e.target.value);
+                 const mode = e.target.value;
+                 
+                 if (mode === 'automatic') {
+                     console.log('Switching to automatic mode');
+                     manualSection.style.display = 'none';
+                     // Auto-save when switching to automatic mode
+                     switchToAutomaticMode();
+                 } else {
+                     console.log('Switching to manual mode');
+                     manualSection.style.display = 'block';
+                 }
+                 
+                 // Update calculation mode display
+                 document.getElementById('calculation-mode').textContent = 
+                     mode.charAt(0).toUpperCase() + mode.slice(1);
+             });
+         });
+         
+         // Handle save button
+         if (saveButton) {
+             console.log('Adding event listener to save button');
+             saveButton.addEventListener('click', saveForecastingSettings);
+         } else {
+             console.error('Save button not found!');
+         }
+         
+         // Handle switch to automatic button
+         if (switchToAutomaticButton) {
+             console.log('Adding event listener to switch to automatic button');
+             switchToAutomaticButton.addEventListener('click', switchToAutomaticMode);
+         } else {
+             console.error('Switch to automatic button not found!');
+         }
+         
+         // Handle reset button
+         if (resetButton) {
+             console.log('Adding event listener to reset button');
+             resetButton.addEventListener('click', resetForecastingSettings);
+         } else {
+             console.error('Reset button not found!');
+         }
+     }
+     
+     // Save forecasting settings
+     function saveForecastingSettings() {
+         console.log('saveForecastingSettings called');
+         console.log('window.currentProductId:', window.currentProductId);
+         
+         if (!window.currentProductId) {
+             alert('No product selected');
+             return;
+         }
+         
+         const mode = document.querySelector('input[name="forecasting-mode"]:checked').value;
+         const leadTime = document.getElementById('manual-lead-time').value;
+         const safetyStock = document.getElementById('manual-safety-stock').value;
+         const reorderPoint = document.getElementById('manual-reorder-point').value;
+         const notes = document.getElementById('forecasting-notes').value;
+         
+         const data = {
+             forecasting_mode: mode,
+             manual_lead_time_days: parseInt(leadTime) || 7
+         };
+         
+         if (safetyStock) {
+             data.manual_safety_stock = parseInt(safetyStock);
+         }
+         
+         if (reorderPoint) {
+             data.manual_reorder_point = parseInt(reorderPoint);
+         }
+         
+         if (notes) {
+             data.forecasting_notes = notes;
+         }
+         
+         fetch(`/api/product/${window.currentProductId}/forecasting`, {
+             method: 'PUT',
+             headers: {
+                 'Content-Type': 'application/json',
+                 'Accept': 'application/json'
+             },
+             credentials: 'same-origin',
+             body: JSON.stringify(data)
+         })
+         .then(response => response.json())
+         .then(result => {
+             if (result.error) {
+                 alert('Error saving settings: ' + result.error);
+             } else {
+                 alert('Forecasting settings saved successfully!');
+                 // Reload product details to show updated values
+                 loadProductDetails(window.currentProductId);
+             }
+         })
+         .catch(error => {
+             console.error('Error saving forecasting settings:', error);
+             alert('Error saving settings. Please try again.');
+         });
+     }
+     
+     // Switch to automatic mode
+     function switchToAutomaticMode() {
+         console.log('switchToAutomaticMode called');
+         if (!window.currentProductId) {
+             console.error('No currentProductId set');
+             alert('No product selected');
+             return;
+         }
+         
+         const data = {
+             forecasting_mode: 'automatic',
+             manual_lead_time_days: 7,
+             manual_safety_stock: null,
+             manual_reorder_point: null,
+             forecasting_notes: null
+         };
+         
+         fetch(`/api/product/${window.currentProductId}/forecasting`, {
+             method: 'PUT',
+             headers: {
+                 'Content-Type': 'application/json',
+                 'Accept': 'application/json'
+             },
+             credentials: 'same-origin',
+             body: JSON.stringify(data)
+         })
+         .then(response => response.json())
+         .then(result => {
+             if (result.error) {
+                 alert('Error switching to automatic mode: ' + result.error);
+             } else {
+                 // Update UI to reflect automatic mode
+                 document.getElementById('mode-automatic').checked = true;
+                 document.getElementById('manual-override-section').style.display = 'none';
+                 document.getElementById('calculation-mode').textContent = 'Automatic';
+                 
+                 // Reload product details to show updated values
+                 loadProductDetails(window.currentProductId);
+                 
+                 // Show success message
+                 alert('Switched to automatic forecasting mode successfully!');
+             }
+         })
+         .catch(error => {
+             console.error('Error switching to automatic mode:', error);
+             alert('Error switching to automatic mode. Please try again.');
+         });
+     }
+     
+     // Reset forecasting settings (form only, doesn't save)
+     function resetForecastingSettings() {
+         document.getElementById('manual-lead-time').value = '7';
+         document.getElementById('manual-safety-stock').value = '';
+         document.getElementById('manual-reorder-point').value = '';
+         document.getElementById('forecasting-notes').value = '';
+         
+         // Reset to automatic mode in UI only
+         document.getElementById('mode-automatic').checked = true;
+         document.getElementById('manual-override-section').style.display = 'none';
+         document.getElementById('calculation-mode').textContent = 'Automatic';
+     }
+
      function populateAlerts(data) {
          // Stock alerts
          const stockAlerts = document.getElementById('stock-alerts');
@@ -1415,7 +1867,7 @@ document.addEventListener('DOMContentLoaded', function() {
                      <div class="alert alert-${alertType} alert-sm">
                          <i class="fas fa-clock me-2"></i>
                          <strong>Batch ${alert.batch_id}</strong> expires in ${daysToExpiry} days<br>
-                         <small>${alert.qty_available} units at ${alert.warehouse_name} - ${alert.aisle}${alert.bin}</small>
+                         <small>${alert.on_hand} units at ${alert.warehouse_name} - ${alert.full_code}</small>
                      </div>
                  `;
              }).join('');
