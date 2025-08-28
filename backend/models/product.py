@@ -17,22 +17,19 @@ class Product:
     """Product model for inventory management"""
     
     def __init__(self, id: str, name: str, description: str = None, sku: str = None,
-                 barcode: str = None, category: str = None, unit: str = None,
-                 batch_tracked: bool = False, min_stock_level: int = 0,
-                 max_stock_level: int = None, created_at: datetime = None,
-                 updated_at: datetime = None):
+                 barcode: str = None, dimensions: str = None, weight: float = None,
+                 picture_url: str = None, batch_tracked: bool = False,
+                 created_at: datetime = None):
         self.id = id
         self.name = name
         self.description = description
         self.sku = sku
         self.barcode = barcode
-        self.category = category
-        self.unit = unit
+        self.dimensions = dimensions
+        self.weight = weight
+        self.picture_url = picture_url
         self.batch_tracked = batch_tracked
-        self.min_stock_level = min_stock_level
-        self.max_stock_level = max_stock_level
         self.created_at = created_at
-        self.updated_at = updated_at
     
     def __repr__(self):
         return f"<Product {self.name} (ID: {self.id})>"
@@ -46,13 +43,11 @@ class Product:
             description=data.get('description'),
             sku=data.get('sku'),
             barcode=data.get('barcode'),
-            category=data.get('category'),
-            unit=data.get('unit'),
+            dimensions=data.get('dimensions'),
+            weight=data.get('weight'),
+            picture_url=data.get('picture_url'),
             batch_tracked=data.get('batch_tracked', False),
-            min_stock_level=data.get('min_stock_level', 0),
-            max_stock_level=data.get('max_stock_level'),
-            created_at=data.get('created_at'),
-            updated_at=data.get('updated_at')
+            created_at=data.get('created_at')
         )
     
     def to_dict(self) -> Dict[str, Any]:
@@ -63,13 +58,11 @@ class Product:
             'description': self.description,
             'sku': self.sku,
             'barcode': self.barcode,
-            'category': self.category,
-            'unit': self.unit,
+            'dimensions': self.dimensions,
+            'weight': self.weight,
+            'picture_url': self.picture_url,
             'batch_tracked': self.batch_tracked,
-            'min_stock_level': self.min_stock_level,
-            'max_stock_level': self.max_stock_level,
-            'created_at': self.created_at,
-            'updated_at': self.updated_at
+            'created_at': self.created_at
         }
     
     @classmethod
@@ -78,9 +71,8 @@ class Product:
         try:
             result = execute_query(
                 """
-                SELECT id, name, description, sku, barcode, category, unit,
-                       batch_tracked, min_stock_level, max_stock_level,
-                       created_at, updated_at
+                SELECT id, name, description, sku, barcode, dimensions, weight,
+                       picture_url, batch_tracked, created_at
                 FROM products WHERE id = %s
                 """,
                 (product_id,),
@@ -123,9 +115,8 @@ class Product:
         """Get all products with optional pagination"""
         try:
             query = """
-                SELECT id, name, description, sku, barcode, category, unit,
-                       batch_tracked, min_stock_level, max_stock_level,
-                       created_at, updated_at
+                SELECT id, name, description, sku, barcode, dimensions, weight,
+                       picture_url, batch_tracked, created_at
                 FROM products
                 ORDER BY name
             """
@@ -151,9 +142,8 @@ class Product:
             
             results = execute_query(
                 """
-                SELECT id, name, description, sku, barcode, category, unit,
-                       batch_tracked, min_stock_level, max_stock_level,
-                       created_at, updated_at
+                SELECT id, name, description, sku, barcode, dimensions, weight,
+                       picture_url, batch_tracked, created_at
                 FROM products
                 WHERE name ILIKE %s OR description ILIKE %s OR sku ILIKE %s
                 ORDER BY name
@@ -170,22 +160,20 @@ class Product:
     
     @classmethod
     def create(cls, name: str, description: str = None, sku: str = None,
-               barcode: str = None, category: str = None, unit: str = None,
-               batch_tracked: bool = False, min_stock_level: int = 0,
-               max_stock_level: int = None) -> Optional['Product']:
+               barcode: str = None, dimensions: str = None, weight: float = None,
+               picture_url: str = None, batch_tracked: bool = False) -> Optional['Product']:
         """Create a new product"""
         try:
             result = execute_query(
                 """
-                INSERT INTO products (name, description, sku, barcode, category, unit,
-                                    batch_tracked, min_stock_level, max_stock_level)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                RETURNING id, name, description, sku, barcode, category, unit,
-                          batch_tracked, min_stock_level, max_stock_level,
-                          created_at, updated_at
+                INSERT INTO products (name, description, sku, barcode, dimensions, weight,
+                                    picture_url, batch_tracked)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id, name, description, sku, barcode, dimensions, weight,
+                          picture_url, batch_tracked, created_at
                 """,
-                (name, description, sku, barcode, category, unit,
-                 batch_tracked, min_stock_level, max_stock_level),
+                (name, description, sku, barcode, dimensions, weight,
+                 picture_url, batch_tracked),
                 fetch_one=True
             )
             

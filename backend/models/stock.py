@@ -279,6 +279,30 @@ class StockItem:
         
         delta = self.expiry_date - datetime.now()
         return delta.days
+    
+    @classmethod
+    def get_all(cls, limit: int = None, offset: int = None) -> List['StockItem']:
+        """Get all stock items with optional pagination"""
+        try:
+            query = """
+                SELECT id, product_id, bin_id, on_hand, qty_reserved,
+                       batch_id, expiry_date, created_at, updated_at
+                FROM stock_items
+                ORDER BY created_at DESC
+            """
+            
+            if limit:
+                query += f" LIMIT {limit}"
+            if offset:
+                query += f" OFFSET {offset}"
+            
+            results = execute_query(query, fetch_all=True)
+            
+            return [cls.from_dict(result) for result in results]
+            
+        except Exception as e:
+            logger.error(f"Error getting all stock items: {e}")
+            return []
 
 
 class StockTransaction:
