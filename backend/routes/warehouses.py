@@ -51,15 +51,15 @@ def warehouses_list():
 @login_required
 def add_warehouse():
     """Add new warehouse page"""
+    # Check if this is a modal request
+    is_modal = request.args.get('modal') == '1'
+    
     if request.method == 'POST':
         try:
             # Get form data
             name = request.form.get('name', '').strip()
-            description = request.form.get('description', '').strip()
             address = request.form.get('address', '').strip()
-            contact_person = request.form.get('contact_person', '').strip()
-            contact_email = request.form.get('contact_email', '').strip()
-            contact_phone = request.form.get('contact_phone', '').strip()
+            code = request.form.get('code', '').strip()
             
             # Validate required fields
             if not name:
@@ -69,16 +69,16 @@ def add_warehouse():
             # Create warehouse
             warehouse = Warehouse.create(
                 name=name,
-                description=description,
                 address=address,
-                contact_person=contact_person,
-                contact_email=contact_email,
-                contact_phone=contact_phone
+                code=code
             )
             
             if warehouse:
                 flash(f'Warehouse "{name}" created successfully!', 'success')
-                return redirect(url_for('warehouses.warehouses_list'))
+                if is_modal:
+                    return redirect(url_for('warehouses.warehouses_list'))
+                else:
+                    return redirect(url_for('warehouses.warehouses_list'))
             else:
                 flash('Failed to create warehouse. Please try again.', 'error')
                 
@@ -99,14 +99,14 @@ def edit_warehouse(warehouse_id):
             flash('Warehouse not found.', 'error')
             return redirect(url_for('warehouses.warehouses_list'))
         
+        # Check if this is a modal request
+        is_modal = request.args.get('modal') == '1'
+        
         if request.method == 'POST':
             # Get form data
             name = request.form.get('name', '').strip()
-            description = request.form.get('description', '').strip()
             address = request.form.get('address', '').strip()
-            contact_person = request.form.get('contact_person', '').strip()
-            contact_email = request.form.get('contact_email', '').strip()
-            contact_phone = request.form.get('contact_phone', '').strip()
+            code = request.form.get('code', '').strip()
             
             # Validate required fields
             if not name:
@@ -116,16 +116,16 @@ def edit_warehouse(warehouse_id):
             # Update warehouse
             success = warehouse.update(
                 name=name,
-                description=description,
                 address=address,
-                contact_person=contact_person,
-                contact_email=contact_email,
-                contact_phone=contact_phone
+                code=code
             )
             
             if success:
                 flash(f'Warehouse "{name}" updated successfully!', 'success')
-                return redirect(url_for('warehouses.warehouses_list'))
+                if is_modal:
+                    return redirect(url_for('warehouses.warehouses_list'))
+                else:
+                    return redirect(url_for('warehouses.warehouses_list'))
             else:
                 flash('Failed to update warehouse. Please try again.', 'error')
         
@@ -230,6 +230,28 @@ def warehouse_locations(warehouse_id):
     except Exception as e:
         logger.error(f"Error loading warehouse locations for {warehouse_id}: {e}")
         flash('Error loading warehouse locations.', 'error')
+        return redirect(url_for('warehouses.warehouses_list'))
+
+
+@warehouses_bp.route('/<warehouse_id>/hierarchy')
+@login_required
+def warehouse_hierarchy(warehouse_id):
+    """Warehouse hierarchical view page"""
+    try:
+        warehouse = Warehouse.get_by_id(warehouse_id)
+        if not warehouse:
+            flash('Warehouse not found.', 'error')
+            return redirect(url_for('warehouses.warehouses_list'))
+        
+        hierarchical_data = warehouse.get_hierarchical_locations()
+        
+        return render_template('warehouse_hierarchy.html',
+                             warehouse=warehouse,
+                             hierarchical_data=hierarchical_data)
+        
+    except Exception as e:
+        logger.error(f"Error loading warehouse hierarchy for {warehouse_id}: {e}")
+        flash('Error loading warehouse hierarchy.', 'error')
         return redirect(url_for('warehouses.warehouses_list'))
 
 
@@ -535,4 +557,37 @@ def api_warehouse_bins(warehouse_id):
         return jsonify({
             'success': False,
             'error': 'Failed to load warehouse bins'
+        }), 500
+
+
+@warehouses_bp.route('/api/<warehouse_id>/hierarchy')
+@login_required
+def api_warehouse_hierarchy(warehouse_id):
+    """API endpoint for warehouse hierarchical structure"""
+    try:
+        warehouse = Warehouse.get_by_id(warehouse_id)
+        if not warehouse:
+            return jsonify({
+                'success': False,
+                'error': 'Warehouse not found'
+            }), 404
+        
+        hierarchical_data = warehouse.get_hierarchical_locations()
+        
+        return jsonify({
+            'success': True,
+            'warehouse': {
+                'id': warehouse.id,
+                'name': warehouse.name,
+                'address': warehouse.address,
+                'code': warehouse.code
+            },
+            'hierarchy': hierarchical_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in warehouse hierarchy API: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Failed to load warehouse hierarchy'
         }), 500

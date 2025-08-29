@@ -27,28 +27,54 @@ def stock_list():
         # Get filter parameters
         product_id = request.args.get('product_id', '')
         bin_id = request.args.get('bin_id', '')
+        warehouse_id = request.args.get('warehouse', '')
         filter_type = request.args.get('filter', '')
         
         # Get stock items based on filters
         if product_id:
-            stock_items = StockItem.get_by_product(product_id)
-        elif bin_id:
-            stock_items = StockItem.get_by_bin(bin_id)
-        elif filter_type == 'low_stock':
+            # For specific product, we need to get basic stock items and enhance them
+            basic_stock_items = StockItem.get_by_product(product_id)
             stock_items = []
-            products = Product.get_all()
-            for product in products:
-                if product.is_low_stock():
-                    stock_items.extend(StockItem.get_by_product(product.id))
+            for item in basic_stock_items:
+                # Get enhanced data for each item
+                enhanced_items = StockItem.get_all_with_locations()
+                stock_items.extend([item for item in enhanced_items if item['product_id'] == product_id])
+        elif bin_id:
+            # For specific bin, we need to get basic stock items and enhance them
+            basic_stock_items = StockItem.get_by_bin(bin_id)
+            stock_items = []
+            for item in basic_stock_items:
+                # Get enhanced data for each item
+                enhanced_items = StockItem.get_all_with_locations()
+                stock_items.extend([item for item in enhanced_items if item['bin_id'] == bin_id])
+        elif warehouse_id:
+            # For specific warehouse, filter stock items by warehouse
+            stock_items = StockItem.get_all_with_locations()
+            stock_items = [item for item in stock_items if item.get('warehouse_id') == warehouse_id]
+        elif filter_type == 'low_stock':
+            # For low stock filter, get all items and filter
+            stock_items = StockItem.get_all_with_locations()
+            stock_items = [item for item in stock_items if item['available_stock'] <= 5]
         elif filter_type == 'expired':
-            stock_items = StockItem.get_all()
-            stock_items = [item for item in stock_items if item.is_expired()]
+            # For expired filter, get all items and filter
+            stock_items = StockItem.get_all_with_locations()
+            from datetime import datetime
+            stock_items = [item for item in stock_items if item['expiry_date'] and datetime.now().date() > item['expiry_date']]
         else:
-            stock_items = StockItem.get_all()
+            # Get all stock items with location data
+            stock_items = StockItem.get_all_with_locations()
         
         # Get products and bins for filter dropdowns
         products = Product.get_all()
         bins = Bin.get_all()
+        
+        # Get warehouse name for the filter if warehouse_id is provided
+        selected_warehouse_name = None
+        if warehouse_id:
+            from models.warehouse import Warehouse
+            warehouse = Warehouse.get_by_id(warehouse_id)
+            if warehouse:
+                selected_warehouse_name = warehouse.name
         
         return render_template('stock.html',
                              stock_items=stock_items,
@@ -56,6 +82,8 @@ def stock_list():
                              bins=bins,
                              selected_product=product_id,
                              selected_bin=bin_id,
+                             selected_warehouse=warehouse_id,
+                             selected_warehouse_name=selected_warehouse_name,
                              filter_type=filter_type)
                              
     except Exception as e:

@@ -1101,6 +1101,7 @@ document.addEventListener('DOMContentLoaded', function() {
              const link = e.target.closest('.product-details-link');
              const productId = link.getAttribute('data-product-id');
              const productName = link.getAttribute('data-product-name');
+             console.log('Product details link clicked:', { productId, productName });
              showProductDetailsModal(productId, productName);
          }
      });
@@ -1154,7 +1155,7 @@ document.addEventListener('DOMContentLoaded', function() {
              modalContainer.setAttribute('aria-hidden', 'true');
 
              // Fetch modal content
-             fetch(`/product/details`, {
+             fetch(`/products/details`, {
                  credentials: 'same-origin', // Include cookies
                  headers: {
                      'Accept': 'text/html',
@@ -1281,7 +1282,9 @@ document.addEventListener('DOMContentLoaded', function() {
      }
 
      function loadProductDetails(productId) {
-         fetch(`/api/product/${productId}/details`, {
+         console.log('loadProductDetails called with productId:', productId);
+         console.log('Fetching from URL:', `/products/api/${productId}/details`);
+         fetch(`/products/api/${productId}/details`, {
              credentials: 'same-origin', // Include cookies
              headers: {
                  'Accept': 'application/json',
@@ -1455,8 +1458,10 @@ document.addEventListener('DOMContentLoaded', function() {
      }
 
      function populateProductDetails(data) {
-         const product = data.product;
-         const forecasting = data.forecasting;
+         // Handle the API response structure where data is wrapped in 'details'
+         const actualData = data.details || data;
+         const product = actualData.product;
+         const forecasting = actualData.forecasting;
 
          // Hide loading, show content
          document.getElementById('loading-spinner').style.display = 'none';
@@ -1464,8 +1469,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
          // Update summary cards
          document.getElementById('available-stock').textContent = forecasting.current_stock;
-         document.getElementById('total-stock').textContent = data.summary.total_locations > 0 ? 
-             data.stock_locations.reduce((sum, loc) => sum + loc.on_hand + loc.qty_reserved, 0) : 0;
+         document.getElementById('total-stock').textContent = actualData.summary.total_locations > 0 ? 
+             actualData.stock_locations.reduce((sum, loc) => sum + loc.on_hand + loc.qty_reserved, 0) : 0;
          
          const daysOfStock = forecasting.days_of_stock;
          document.getElementById('days-of-stock').textContent = daysOfStock === Infinity ? '∞' : Math.round(daysOfStock);
@@ -1487,26 +1492,26 @@ document.addEventListener('DOMContentLoaded', function() {
          document.getElementById('product-batch-tracking').textContent = product.batch_tracked ? 'Enabled' : 'Disabled';
 
          // Populate locations table
-         populateLocationsTable(data.stock_locations);
+         populateLocationsTable(actualData.stock_locations);
 
          // Populate transactions table
-         populateTransactionsTable(data.transaction_history);
+         populateTransactionsTable(actualData.transaction_history);
 
          // Populate forecasting data
-         populateForecastingData(data.forecasting);
+         populateForecastingData(actualData.forecasting);
 
          // Initialize forecasting controls
          initializeForecastingControls();
 
          // Populate alerts
-         populateAlerts(data);
+         populateAlerts(actualData);
 
          // Create charts
-         createCharts(data);
+         createCharts(actualData);
 
          // Update counts
-         document.getElementById('locations-count').textContent = `${data.summary.total_locations} locations`;
-         document.getElementById('transactions-count').textContent = `${data.summary.total_transactions} transactions`;
+         document.getElementById('locations-count').textContent = `${actualData.summary.total_locations} locations`;
+         document.getElementById('transactions-count').textContent = `${actualData.summary.total_transactions} transactions`;
      }
 
      function populateLocationsTable(locations) {

@@ -98,52 +98,87 @@
                 </div>
             </div>
             <div class="card-body">
-                <p class="card-text">
-                    <strong>Address:</strong><br>
-                    {{ warehouse.address or 'No address specified' }}
-                </p>
+                <!-- Basic Information -->
+                <div class="mb-3">
+                    <div class="row">
+                        <div class="col-8">
+                            <p class="card-text mb-2">
+                                <strong><i class="fas fa-map-marker-alt text-primary me-1"></i>Address:</strong><br>
+                                <small class="text-muted">{{ warehouse.address or 'No address specified' }}</small>
+                            </p>
+                        </div>
+                        <div class="col-4 text-end">
+                            <span class="badge bg-secondary">{{ warehouse.code or 'No Code' }}</span>
+                        </div>
+                    </div>
+                </div>
                 
                 <!-- Storage Summary -->
                 <div class="mt-3">
-                    {% if warehouse.locations %}
+                    {% set locations = warehouse.get_locations() %}
+                    {% set bins = warehouse.get_bins() %}
+                    {% set total_bins = bins|length if bins else 0 %}
+                    {% set occupied_bins = 0 %}
+                    {% if bins %}
+                        {% for bin in bins %}
+                            {% set stock_items = bin.get_stock_items() %}
+                            {% if stock_items and stock_items|sum(attribute='on_hand') > 0 %}
+                                {% set occupied_bins = occupied_bins + 1 %}
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                    
+                    {% if locations %}
                         <div class="row text-center">
                             <div class="col-4">
                                 <div class="border rounded p-2">
-                                    <div class="h5 mb-0 text-primary">{{ warehouse.locations|length }}</div>
+                                    <div class="h5 mb-0 text-primary">{{ locations|length }}</div>
                                     <small class="text-muted">Locations</small>
                                 </div>
                             </div>
                             <div class="col-4">
                                 <div class="border rounded p-2">
-                                    <div class="h5 mb-0 text-info">{{ warehouse.locations|sum(attribute='bin_count') }}</div>
+                                    <div class="h5 mb-0 text-info">{{ total_bins }}</div>
                                     <small class="text-muted">Total Bins</small>
                                 </div>
                             </div>
                             <div class="col-4">
                                 <div class="border rounded p-2">
-                                    <div class="h5 mb-0 text-success">
-                                        {% if warehouse.hierarchical_locations %}
-                                            {{ warehouse.hierarchical_locations|length }}
-                                        {% else %}
-                                            0
-                                        {% endif %}
-                                    </div>
-                                    <small class="text-muted">Areas</small>
+                                    <div class="h5 mb-0 text-success">{{ occupied_bins }}</div>
+                                    <small class="text-muted">Occupied</small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Utilization Bar -->
+                        <div class="mt-3">
+                            {% set utilization = (occupied_bins / total_bins * 100) if total_bins > 0 else 0 %}
+                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                <small class="text-muted">Utilization</small>
+                                <small class="text-muted">{{ "%.1f"|format(utilization) }}%</small>
+                            </div>
+                            <div class="progress" style="height: 6px;">
+                                <div class="progress-bar {% if utilization > 80 %}bg-danger{% elif utilization > 60 %}bg-warning{% else %}bg-success{% endif %}" 
+                                     role="progressbar" 
+                                     style="width: {{ utilization }}%" 
+                                     aria-valuenow="{{ utilization }}" 
+                                     aria-valuemin="0" 
+                                     aria-valuemax="100">
                                 </div>
                             </div>
                         </div>
                         
                         <div class="mt-3">
                             <small class="text-muted">
-                                <i class="bi bi-geo-alt me-1"></i>
-                                Storage structure configured with hierarchical organization
+                                <i class="fas fa-sitemap me-1"></i>
+                                Storage structure configured with {{ locations|length }} locations
                             </small>
                         </div>
                     {% else %}
                         <div class="text-center py-3">
-                            <i class="bi bi-geo-alt text-muted"></i>
+                            <i class="fas fa-warehouse text-muted fa-2x mb-2"></i>
                             <p class="text-muted small mb-0">No storage locations defined</p>
-                            <small class="text-muted">Click "Edit" to configure storage structure</small>
+                            <small class="text-muted">Click "Configure" to set up storage structure</small>
                         </div>
                     {% endif %}
                 </div>
@@ -160,6 +195,11 @@
                             onclick="window.location.href='/stock?warehouse={{ warehouse.id }}'"
                             title="View Stock in this Warehouse">
                         <i class="bi bi-boxes"></i> View Stock
+                    </button>
+                    <button class="btn btn-outline-secondary" 
+                            onclick="window.location.href='{{ url_for('warehouses.warehouse_hierarchy', warehouse_id=warehouse.id) }}'"
+                            title="View Hierarchical Structure">
+                        <i class="bi bi-sitemap"></i> Hierarchy
                     </button>
                 </div>
             </div>

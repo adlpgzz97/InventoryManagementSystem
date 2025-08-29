@@ -37,11 +37,12 @@
                             <option value="">All Warehouses</option>
                             {% set warehouses = [] %}
                             {% for item in stock_items %}
-                                {% if item.locations and item.locations.warehouses %}
-                                    {% set warehouse_name = item.locations.warehouses.name %}
-                                    {% if warehouse_name not in warehouses %}
-                                        {% set _ = warehouses.append(warehouse_name) %}
-                                        <option value="{{ warehouse_name|lower }}">{{ warehouse_name }}</option>
+                                {% if item.warehouse and item.warehouse.id %}
+                                    {% set warehouse_id = item.warehouse.id %}
+                                    {% set warehouse_name = item.warehouse.name %}
+                                    {% if warehouse_id not in warehouses %}
+                                        {% set _ = warehouses.append(warehouse_id) %}
+                                        <option value="{{ warehouse_id }}" {% if selected_warehouse and selected_warehouse == warehouse_id %}selected{% endif %}>{{ warehouse_name }}</option>
                                     {% endif %}
                                 {% endif %}
                             {% endfor %}
@@ -141,13 +142,13 @@
                 <tbody id="stock-tbody">
                     {% for item in stock_items %}
                     <tr class="stock-row" 
-                                                    data-available="{{ item.on_hand }}"
-                            data-product-name="{{ (item.products.name if item.products else '')|lower }}"
-                            data-sku="{{ (item.products.sku if item.products else '')|lower }}"
-                            data-bin="{{ (item.locations.bin_code if item.locations else '')|lower }}"
-                            data-location="{{ (item.locations.location_code if item.locations else '')|lower }}"
-                            data-warehouse="{{ (item.locations.warehouses.name if item.locations and item.locations.warehouses else '')|lower }}"
-                            data-status="{% if item.on_hand == 0 %}out{% elif item.on_hand < 10 %}low{% else %}in{% endif %}">
+                                                    data-available="{{ item.available_stock }}"
+                            data-product-name="{{ (item.product.name if item.product else '')|lower }}"
+                            data-sku="{{ (item.product.sku if item.product else '')|lower }}"
+                            data-bin="{{ (item.bin.code if item.bin else '')|lower }}"
+                            data-location="{{ (item.location.code if item.location else '')|lower }}"
+                            data-warehouse="{{ (item.warehouse.name if item.warehouse else '')|lower }}"
+                            data-status="{% if item.available_stock == 0 %}out{% elif item.available_stock < 10 %}low{% else %}in{% endif %}">
                         <td>
                             <div class="form-check">
                                 <input class="form-check-input stock-checkbox" type="checkbox" value="{{ item.id }}" id="stock-{{ loop.index }}">
@@ -156,38 +157,38 @@
                         </td>
                         <td>
                             <strong>
-                                {% if item.products %}
-                                    {{ item.products.name }}
+                                {% if item.product %}
+                                    {{ item.product.name }}
                                 {% else %}
                                     Unknown Product
                                 {% endif %}
                             </strong>
                         </td>
                         <td>
-                            {% if item.products %}
-                                <code>{{ item.products.sku }}</code>
+                            {% if item.product %}
+                                <code>{{ item.product.sku }}</code>
                             {% else %}
                                 N/A
                             {% endif %}
                         </td>
                         <td>
-                            {% if item.locations and item.locations.bin_code %}
-                                <span class="badge bg-primary">{{ item.locations.bin_code }}</span>
+                            {% if item.bin and item.bin.code %}
+                                <span class="badge bg-primary">{{ item.bin.code }}</span>
                             {% else %}
                                 <span class="text-muted">N/A</span>
                             {% endif %}
                         </td>
                         <td>
-                            {% if item.locations and item.locations.location_code %}
-                                <span class="badge bg-secondary">{{ item.locations.location_code }}</span>
+                            {% if item.location and item.location.code %}
+                                <span class="badge bg-secondary">{{ item.location.code }}</span>
                             {% else %}
                                 <span class="text-muted">N/A</span>
                             {% endif %}
                         </td>
 
                         <td>
-                                                    <span class="badge bg-{% if item.on_hand == 0 %}danger{% elif item.on_hand < 10 %}warning{% else %}success{% endif %}">
-                            {{ item.on_hand }}
+                                                    <span class="badge bg-{% if item.available_stock == 0 %}danger{% elif item.available_stock < 10 %}warning{% else %}success{% endif %}">
+                            {{ item.available_stock }}
                         </span>
                         </td>
                         <td>
@@ -197,7 +198,7 @@
                                 {{ item.qty_reserved }}
                             {% endif %}
                         </td>
-                        <td><strong>{{ item.on_hand + item.qty_reserved }}</strong></td>
+                        <td><strong>{{ item.on_hand }}</strong></td>
                         <td>
                             {% if item.batch_id %}
                                 <div class="small">
@@ -213,9 +214,9 @@
                             {% endif %}
                         </td>
                         <td>
-                                                    {% if item.on_hand == 0 %}
+                                                    {% if item.available_stock == 0 %}
                             <span class="badge bg-danger">Out of Stock</span>
-                        {% elif item.on_hand < 10 %}
+                        {% elif item.available_stock < 10 %}
                                 <span class="badge bg-warning">Low Stock</span>
                             {% else %}
                                 <span class="badge bg-success">In Stock</span>
@@ -514,7 +515,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 bin.includes(searchTerm) ||
                 location.includes(searchTerm);
             
-            const matchesBin = !warehouseTerm || bin.includes(warehouseTerm) || location.includes(warehouseTerm) || warehouse.includes(warehouseTerm);
+            const matchesBin = !warehouseTerm || warehouse === warehouseTerm;
             const matchesStatus = !statusTerm || status === statusTerm;
             const matchesLowStock = !lowStockOnly || available < 10;
             

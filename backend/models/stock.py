@@ -18,7 +18,7 @@ class StockItem:
     
     def __init__(self, id: str, product_id: str, bin_id: str, on_hand: int = 0,
                  qty_reserved: int = 0, batch_id: str = None, expiry_date: datetime = None,
-                 created_at: datetime = None, updated_at: datetime = None):
+                 created_at: datetime = None):
         self.id = id
         self.product_id = product_id
         self.bin_id = bin_id
@@ -27,7 +27,6 @@ class StockItem:
         self.batch_id = batch_id
         self.expiry_date = expiry_date
         self.created_at = created_at
-        self.updated_at = updated_at
     
     def __repr__(self):
         return f"<StockItem ID: {self.id}, Product: {self.product_id}, Bin: {self.bin_id}>"
@@ -48,8 +47,7 @@ class StockItem:
             qty_reserved=data.get('qty_reserved', 0),
             batch_id=data.get('batch_id'),
             expiry_date=data.get('expiry_date'),
-            created_at=data.get('created_at'),
-            updated_at=data.get('updated_at')
+            created_at=data.get('created_at')
         )
     
     def to_dict(self) -> Dict[str, Any]:
@@ -63,8 +61,7 @@ class StockItem:
             'available_stock': self.available_stock,
             'batch_id': self.batch_id,
             'expiry_date': self.expiry_date,
-            'created_at': self.created_at,
-            'updated_at': self.updated_at
+            'created_at': self.created_at
         }
     
     @classmethod
@@ -74,7 +71,7 @@ class StockItem:
             result = execute_query(
                 """
                 SELECT id, product_id, bin_id, on_hand, qty_reserved,
-                       batch_id, expiry_date, created_at, updated_at
+                       batch_id, expiry_date, created_at
                 FROM stock_items WHERE id = %s
                 """,
                 (stock_id,),
@@ -96,7 +93,7 @@ class StockItem:
             result = execute_query(
                 """
                 SELECT id, product_id, bin_id, on_hand, qty_reserved,
-                       batch_id, expiry_date, created_at, updated_at
+                       batch_id, expiry_date, created_at
                 FROM stock_items 
                 WHERE product_id = %s AND bin_id = %s
                 """,
@@ -119,7 +116,7 @@ class StockItem:
             results = execute_query(
                 """
                 SELECT id, product_id, bin_id, on_hand, qty_reserved,
-                       batch_id, expiry_date, created_at, updated_at
+                       batch_id, expiry_date, created_at
                 FROM stock_items 
                 WHERE product_id = %s
                 ORDER BY created_at DESC
@@ -141,7 +138,7 @@ class StockItem:
             results = execute_query(
                 """
                 SELECT id, product_id, bin_id, on_hand, qty_reserved,
-                       batch_id, expiry_date, created_at, updated_at
+                       batch_id, expiry_date, created_at
                 FROM stock_items 
                 WHERE bin_id = %s
                 ORDER BY created_at DESC
@@ -168,7 +165,7 @@ class StockItem:
                                        batch_id, expiry_date)
                 VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id, product_id, bin_id, on_hand, qty_reserved,
-                          batch_id, expiry_date, created_at, updated_at
+                          batch_id, expiry_date, created_at
                 """,
                 (product_id, bin_id, on_hand, qty_reserved, batch_id, expiry_date),
                 fetch_one=True
@@ -199,7 +196,6 @@ class StockItem:
             if not updates:
                 return False
             
-            updates.append("updated_at = NOW()")
             values.append(self.id)
             
             query = f"""
@@ -270,14 +266,14 @@ class StockItem:
         if not self.expiry_date:
             return False
         
-        return datetime.now() > self.expiry_date
+        return datetime.now().date() > self.expiry_date
     
     def days_until_expiry(self) -> Optional[int]:
         """Get days until expiry"""
         if not self.expiry_date:
             return None
         
-        delta = self.expiry_date - datetime.now()
+        delta = self.expiry_date - datetime.now().date()
         return delta.days
     
     @classmethod
@@ -304,6 +300,71 @@ class StockItem:
             logger.error(f"Error getting all stock items: {e}")
             return []
 
+    @classmethod
+    def get_all_with_locations(cls, limit: int = None, offset: int = None) -> List[Dict[str, Any]]:
+        """Get all stock items with full location hierarchy"""
+        try:
+            query = """
+                SELECT 
+                    si.id, si.product_id, si.bin_id, si.on_hand, si.qty_reserved,
+                    si.batch_id, si.expiry_date, si.created_at,
+                    p.name as product_name, p.sku as product_sku,
+                    b.code as bin_code,
+                    l.full_code as location_code,
+                    w.id as warehouse_id, w.name as warehouse_name, w.code as warehouse_code
+                FROM stock_items si
+                JOIN products p ON si.product_id = p.id
+                JOIN bins b ON si.bin_id = b.id
+                LEFT JOIN locations l ON b.location_id = l.id
+                LEFT JOIN warehouses w ON l.warehouse_id = w.id
+                ORDER BY si.created_at DESC
+            """
+            
+            if limit:
+                query += f" LIMIT {limit}"
+            if offset:
+                query += f" OFFSET {offset}"
+            
+            results = execute_query(query, fetch_all=True)
+            
+            # Convert to list of dictionaries with enhanced data
+            stock_items = []
+            for result in results:
+                stock_item = {
+                    'id': result['id'],
+                    'product_id': result['product_id'],
+                    'bin_id': result['bin_id'],
+                    'on_hand': result['on_hand'],
+                    'qty_reserved': result['qty_reserved'],
+                    'available_stock': result['on_hand'] - result['qty_reserved'],
+                    'batch_id': result['batch_id'],
+                    'expiry_date': result['expiry_date'],
+                    'created_at': result['created_at'],
+                    'product': {
+                        'name': result['product_name'],
+                        'sku': result['product_sku']
+                    },
+                    'bin': {
+                        'code': result['bin_code']
+                    },
+                    'location': {
+                        'code': result['location_code']
+                    },
+                    'warehouse': {
+                        'id': result['warehouse_id'],
+                        'name': result['warehouse_name'],
+                        'code': result['warehouse_code']
+                    },
+                    'warehouse_id': result['warehouse_id']
+                }
+                stock_items.append(stock_item)
+            
+            return stock_items
+            
+        except Exception as e:
+            logger.error(f"Error getting stock items with locations: {e}")
+            return []
+
 
 class StockTransaction:
     """Stock transaction model for tracking stock movements"""
@@ -320,6 +381,23 @@ class StockTransaction:
         self.notes = notes
         self.user_id = user_id
         self.created_at = created_at
+    
+    def __repr__(self):
+        return f"<StockTransaction {self.transaction_type} (ID: {self.id})>"
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert stock transaction to dictionary"""
+        return {
+            'id': self.id,
+            'stock_item_id': self.stock_item_id,
+            'transaction_type': self.transaction_type,
+            'quantity_change': self.quantity_change,
+            'quantity_before': self.quantity_before,
+            'quantity_after': self.quantity_after,
+            'notes': self.notes,
+            'user_id': self.user_id,
+            'created_at': self.created_at
+        }
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'StockTransaction':

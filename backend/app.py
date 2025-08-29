@@ -3,7 +3,7 @@ Inventory Management System - Flask Application
 Main application entry point with blueprint registration
 """
 
-from flask import Flask, render_template, jsonify
+from flask import Flask, render_template, jsonify, request
 from flask_login import LoginManager
 import logging
 import os
@@ -21,7 +21,8 @@ from routes import (
     products_bp, 
     stock_bp, 
     warehouses_bp, 
-    scanner_bp
+    scanner_bp,
+    transactions_bp
 )
 
 # Configure logging
@@ -88,6 +89,7 @@ def register_blueprints(app):
         app.register_blueprint(products_bp)
         app.register_blueprint(stock_bp)
         app.register_blueprint(warehouses_bp)
+        app.register_blueprint(transactions_bp)
         
         # Scanner routes
         app.register_blueprint(scanner_bp)
@@ -106,7 +108,7 @@ def register_error_handlers(app):
     def not_found_error(error):
         """Handle 404 errors"""
         logger.warning(f"404 error: {request.url}")
-        if request.is_xhr:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'error': 'Page not found'}), 404
         return render_template('error.html', 
                              message='Page not found',
@@ -116,7 +118,7 @@ def register_error_handlers(app):
     def internal_error(error):
         """Handle 500 errors"""
         logger.error(f"500 error: {error}")
-        if request.is_xhr:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'error': 'Internal server error'}), 500
         return render_template('error.html', 
                              message='Internal server error',
@@ -126,7 +128,7 @@ def register_error_handlers(app):
     def forbidden_error(error):
         """Handle 403 errors"""
         logger.warning(f"403 error: {request.url}")
-        if request.is_xhr:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'error': 'Access forbidden'}), 403
         return render_template('error.html', 
                              message='Access forbidden',
@@ -136,7 +138,7 @@ def register_error_handlers(app):
     def unauthorized_error(error):
         """Handle 401 errors"""
         logger.warning(f"401 error: {request.url}")
-        if request.is_xhr:
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
             return jsonify({'error': 'Authentication required'}), 401
         return render_template('error.html', 
                              message='Authentication required',

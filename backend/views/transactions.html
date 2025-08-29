@@ -443,7 +443,7 @@ document.addEventListener('DOMContentLoaded', function() {
     
          function loadFilterOptions() {
          // Load warehouse options
-         fetch('/api/warehouses')
+         fetch('/transactions/api/warehouses')
              .then(response => response.json())
              .then(data => {
                  if (filterWarehouse && data.warehouses) {
@@ -458,7 +458,7 @@ document.addEventListener('DOMContentLoaded', function() {
              .catch(error => console.error('Error loading warehouses:', error));
          
          // Load stock items for transaction form
-         fetch('/api/stock-items')
+         fetch('/transactions/api/stock-items')
              .then(response => response.json())
              .then(data => {
                  const stockItemSelect = document.getElementById('stock-item-select');
@@ -619,7 +619,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     
     function viewTransactionDetails(transactionId) {
-        fetch(`/api/transactions/${transactionId}`)
+        fetch(`/transactions/api/${transactionId}`)
             .then(response => response.json())
             .then(data => {
                 if (data.error) {
@@ -692,7 +692,7 @@ document.addEventListener('DOMContentLoaded', function() {
         }
         
         // Send to API
-        fetch('/api/transactions', {
+        fetch('/transactions/api', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

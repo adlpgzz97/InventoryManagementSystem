@@ -68,6 +68,8 @@ class Product:
     @classmethod
     def get_by_id(cls, product_id: str) -> Optional['Product']:
         """Get product by ID"""
+        logger.info(f"Product.get_by_id called with product_id: {product_id}")
+        logger.info(f"Product ID type: {type(product_id)}")
         try:
             result = execute_query(
                 """
@@ -80,7 +82,9 @@ class Product:
             )
             
             if result:
+                logger.info(f"Product found: {result}")
                 return cls.from_dict(result)
+            logger.warning(f"No product found for ID: {product_id}")
             return None
             
         except Exception as e:
@@ -93,9 +97,8 @@ class Product:
         try:
             result = execute_query(
                 """
-                SELECT id, name, description, sku, barcode, category, unit,
-                       batch_tracked, min_stock_level, max_stock_level,
-                       created_at, updated_at
+                SELECT id, name, description, sku, barcode, dimensions, weight,
+                       picture_url, batch_tracked, created_at
                 FROM products WHERE barcode = %s
                 """,
                 (barcode,),
@@ -204,61 +207,48 @@ class Product:
             
             query = f"""
                 UPDATE products 
-                SET {', '.join(fields)}, updated_at = NOW()
+                SET {', '.join(fields)}
                 WHERE id = %s
                 RETURNING id
             """
             
             result = execute_query(query, tuple(values), fetch_one=True)
-            
-            if result:
-                # Update instance attributes
-                for key, value in kwargs.items():
-                    if hasattr(self, key):
-                        setattr(self, key, value)
-                return True
-            
-            return False
+            return result is not None
             
         except Exception as e:
             logger.error(f"Error updating product {self.id}: {e}")
             return False
     
     def delete(self) -> bool:
-        """Delete product"""
+        """Delete the product"""
         try:
             result = execute_query(
                 "DELETE FROM products WHERE id = %s RETURNING id",
                 (self.id,),
                 fetch_one=True
             )
-            
             return result is not None
             
         except Exception as e:
             logger.error(f"Error deleting product {self.id}: {e}")
             return False
     
-    def get_stock_levels(self) -> Dict[str, Any]:
+    def get_stock_levels(self) -> Dict[str, int]:
         """Get current stock levels for this product"""
         try:
-            result = execute_query(
-                """
-                SELECT 
-                    COALESCE(SUM(on_hand), 0) as total_on_hand,
-                    COALESCE(SUM(qty_reserved), 0) as total_reserved,
-                    COALESCE(SUM(on_hand - qty_reserved), 0) as available_stock
-                FROM stock_items 
-                WHERE product_id = %s
-                """,
-                (self.id,),
-                fetch_one=True
-            )
+            from models.stock import StockItem
             
-            return result or {
-                'total_on_hand': 0,
-                'total_reserved': 0,
-                'available_stock': 0
+            stock_items = StockItem.get_by_product(self.id)
+            
+            total_on_hand = sum(item.on_hand for item in stock_items)
+            total_reserved = sum(item.qty_reserved for item in stock_items)
+            total_available = total_on_hand - total_reserved
+            
+            return {
+                'total_on_hand': total_on_hand,
+                'total_reserved': total_reserved,
+                'total_available': total_available,
+                'stock_items_count': len(stock_items)
             }
             
         except Exception as e:
@@ -266,18 +256,36 @@ class Product:
             return {
                 'total_on_hand': 0,
                 'total_reserved': 0,
-                'available_stock': 0
+                'total_available': 0,
+                'stock_items_count': 0
             }
     
-    def is_low_stock(self) -> bool:
-        """Check if product is below minimum stock level"""
+    @property
+    def available_stock(self) -> int:
+        """Get available stock for this product"""
         stock_levels = self.get_stock_levels()
-        return stock_levels['available_stock'] <= self.min_stock_level
+        return stock_levels['total_available']
+    
+    @property
+    def total_stock(self) -> int:
+        """Get total stock for this product"""
+        stock_levels = self.get_stock_levels()
+        return stock_levels['total_on_hand']
+    
+    @property
+    def reserved_stock(self) -> int:
+        """Get reserved stock for this product"""
+        stock_levels = self.get_stock_levels()
+        return stock_levels['total_reserved']
+    
+    def is_low_stock(self) -> bool:
+        """Check if product is low on stock (placeholder - no min_stock_level in schema)"""
+        # Since min_stock_level doesn't exist in schema, we'll use a default threshold
+        stock_levels = self.get_stock_levels()
+        return stock_levels['total_available'] <= 5  # Default low stock threshold
     
     def is_overstocked(self) -> bool:
-        """Check if product is above maximum stock level"""
-        if self.max_stock_level is None:
-            return False
-        
+        """Check if product is overstocked (placeholder - no max_stock_level in schema)"""
+        # Since max_stock_level doesn't exist in schema, we'll use a default threshold
         stock_levels = self.get_stock_levels()
-        return stock_levels['available_stock'] >= self.max_stock_level
+        return stock_levels['total_available'] >= 100  # Default overstock threshold
