@@ -1,0 +1,88 @@
+{# Navigation Component - Top navigation bar #}
+
+<nav class="navbar navbar-expand-lg navbar-light bg-light compact-header">
+    <div class="container-fluid">
+        <!-- Brand -->
+        <a class="navbar-brand" href="{{ url_for('dashboard.dashboard') }}">
+            <i class="fas fa-boxes me-2"></i>
+            <span class="fw-bold">Inventory Manager</span>
+        </a>
+        
+        <!-- Mobile Toggle -->
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+            <span class="navbar-toggler-icon"></span>
+        </button>
+        
+        <!-- Navigation Items -->
+        <div class="collapse navbar-collapse" id="navbarNav">
+            <ul class="navbar-nav me-auto">
+                <li class="nav-item">
+                    <a class="nav-link" href="{{ url_for('dashboard.dashboard') }}">
+                        <i class="fas fa-tachometer-alt me-1"></i>Dashboard
+                    </a>
+                </li>
+                                 <li class="nav-item">
+                     <a class="nav-link" href="{{ url_for('products.products_list') }}">
+                         <i class="fas fa-box me-1"></i>Products
+                     </a>
+                 </li>
+                 <li class="nav-item">
+                     <a class="nav-link" href="{{ url_for('stock.stock_list') }}">
+                         <i class="fas fa-warehouse me-1"></i>Stock
+                     </a>
+                 </li>
+                 <li class="nav-item">
+                     <a class="nav-link" href="{{ url_for('warehouses.warehouses_list') }}">
+                         <i class="fas fa-building me-1"></i>Warehouses
+                     </a>
+                 </li>
+                 <li class="nav-item">
+                     <a class="nav-link" href="{{ url_for('transactions.transactions_list') }}">
+                         <i class="fas fa-exchange-alt me-1"></i>Transactions
+                     </a>
+                 </li>
+                 <li class="nav-item">
+                     <a class="nav-link" href="{{ url_for('scanner.scanner_page') }}">
+                         <i class="fas fa-qrcode me-1"></i>Scanner
+                     </a>
+                 </li>
+            </ul>
+            
+            <!-- User Menu -->
+            <ul class="navbar-nav">
+                {% if current_user.is_authenticated %}
+                <li class="nav-item dropdown">
+                    <a class="nav-link dropdown-toggle" href="#" id="userDropdown" role="button" 
+                       data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="fas fa-user-circle me-1"></i>
+                        {{ current_user.username }}
+                        {% if current_user.role %}
+                        <span class="badge bg-secondary ms-1">{{ current_user.role|title }}</span>
+                        {% endif %}
+                    </a>
+                    <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userDropdown">
+                                                 <li><a class="dropdown-item" href="{{ url_for('auth.profile') }}">
+                             <i class="fas fa-user me-2"></i>Profile
+                         </a></li>
+                         {% if current_user.role == 'admin' %}
+                         <li><a class="dropdown-item" href="{{ url_for('dashboard.admin_schema') }}">
+                             <i class="fas fa-database me-2"></i>Database Schema
+                         </a></li>
+                         <li><hr class="dropdown-divider"></li>
+                         {% endif %}
+                         <li><a class="dropdown-item" href="{{ url_for('auth.logout') }}">
+                             <i class="fas fa-sign-out-alt me-2"></i>Logout
+                         </a></li>
+                    </ul>
+                </li>
+                {% else %}
+                                 <li class="nav-item">
+                     <a class="nav-link" href="{{ url_for('auth.login') }}">
+                         <i class="fas fa-sign-in-alt me-1"></i>Login
+                     </a>
+                 </li>
+                {% endif %}
+            </ul>
+        </div>
+    </div>
+</nav>

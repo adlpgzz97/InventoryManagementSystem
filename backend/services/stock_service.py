@@ -7,9 +7,10 @@ from typing import Optional, Dict, Any, List
 import logging
 from datetime import datetime, timedelta
 
-from models.stock import StockItem, StockTransaction
-from models.product import Product
-from utils.database import execute_query
+from backend.models.stock import StockItem, StockTransaction
+from backend.models.product import Product
+from backend.repositories.stock_repository import StockRepository
+from backend.utils.database import execute_query
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -17,6 +18,10 @@ logger = logging.getLogger(__name__)
 
 class StockService:
     """Service class for stock management operations"""
+    
+    def __init__(self):
+        """Initialize StockService with required repositories"""
+        self.stock_repository = StockRepository()
     
     @staticmethod
     def handle_stock_receiving(product_id: str, bin_id: str, qty_available: int, 
@@ -441,3 +446,35 @@ class StockService:
         except Exception as e:
             logger.error(f"Error releasing reserved stock: {e}")
             return False
+    
+    def get_stock_by_product(self, product_id: str) -> List[Dict[str, Any]]:
+        """Get stock items for a specific product"""
+        try:
+            return self.stock_repository.get_stock_by_product(product_id)
+        except Exception as e:
+            logger.error(f"Error getting stock by product: {e}")
+            return []
+    
+    def get_stock_by_warehouse(self, warehouse_id: str) -> List[Dict[str, Any]]:
+        """Get stock items in a specific warehouse"""
+        try:
+            return self.stock_repository.get_stock_by_warehouse(warehouse_id)
+        except Exception as e:
+            logger.error(f"Error getting stock by warehouse: {e}")
+            return []
+    
+    def get_low_stock_items(self, threshold: int = 10) -> List[Dict[str, Any]]:
+        """Get stock items below threshold"""
+        try:
+            return self.stock_repository.get_low_stock_items(threshold)
+        except Exception as e:
+            logger.error(f"Error getting low stock items: {e}")
+            return []
+    
+    def get_expiring_stock(self, days_ahead: int = 30) -> List[Dict[str, Any]]:
+        """Get stock items expiring soon"""
+        try:
+            return self.stock_repository.get_expiring_stock(days_ahead)
+        except Exception as e:
+            logger.error(f"Error getting expiring stock: {e}")
+            return []

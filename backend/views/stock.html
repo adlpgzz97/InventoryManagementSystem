@@ -173,7 +173,7 @@
                         </td>
                         <td>
                             {% if item.bin and item.bin.code %}
-                                <span class="badge bg-primary">{{ item.bin.code }}</span>
+                                <span class="badge bg-primary" style="cursor: pointer;" onclick="binDetailsManager.showBinDetails('{{ item.bin.code }}')" title="Click to view bin details">{{ item.bin.code }}</span>
                             {% else %}
                                 <span class="text-muted">N/A</span>
                             {% endif %}
@@ -337,9 +337,16 @@
 {% endif %}
 {% endblock %}
 
+{% block modals %}
+{% include 'bin_details_modal.html' %}
+{% endblock %}
+
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function() {
+    // Define missing variables to prevent JavaScript errors
+    window.isEditMode = false;
+    
     const searchInput = document.getElementById('search-stock');
     const warehouseFilter = document.getElementById('filter-warehouse');
     const statusFilter = document.getElementById('filter-status');

@@ -10,7 +10,7 @@ from typing import Dict, Any, Optional, Union
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from config import get_config
+import os
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -20,8 +20,7 @@ class PostgRESTClient:
     """PostgREST API client with retry logic and error handling"""
     
     def __init__(self, base_url: str = None):
-        self.config = get_config()
-        self.base_url = base_url or self.config.POSTGREST_URL
+        self.base_url = base_url or os.environ.get('POSTGREST_URL', 'http://localhost:3000')
         self.session = self._create_session()
     
     def _create_session(self) -> requests.Session:

@@ -3,19 +3,20 @@ Inventory Management System - Flask Application
 Main application entry point with blueprint registration
 """
 
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, redirect, url_for, session
 from flask_login import LoginManager
 import logging
 import os
+from datetime import datetime
 
 # Import configuration
-from config import Config
+from backend.config import config
 
 # Import models
-from models.user import User
+from backend.models.user import User
 
 # Import route blueprints
-from routes import (
+from backend.routes import (
     auth_bp, 
     dashboard_bp, 
     products_bp, 
@@ -27,29 +28,40 @@ from routes import (
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=getattr(logging, config.LOG_LEVEL),
+    format=config.LOG_FORMAT,
     handlers=[
-        logging.FileHandler('app.log'),
+        logging.FileHandler(config.LOG_FILE),
         logging.StreamHandler()
     ]
 )
 
 logger = logging.getLogger(__name__)
 
-def create_app(config_class=Config):
+def create_app(config_class=None):
     """Application factory pattern"""
     app = Flask(__name__, template_folder='views')
     
     # Load configuration
-    app.config.from_object(config_class)
+    if config_class:
+        app.config.from_object(config_class)
+    else:
+        # Use centralized configuration
+        app.config.update(config.FLASK_CONFIG)
     
     # Initialize Flask-Login
     login_manager = LoginManager()
     login_manager.init_app(app)
     login_manager.login_view = 'auth.login'
-    login_manager.login_message = 'Please log in to access this page.'
+    login_manager.login_message = config.LOGIN_MESSAGE
     login_manager.login_message_category = 'info'
+    
+    # Configure session for desktop app compatibility
+    app.config['SESSION_COOKIE_SECURE'] = False  # Allow HTTP in desktop app
+    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['SESSION_COOKIE_DOMAIN'] = None  # Allow localhost
+    app.config['SESSION_COOKIE_PATH'] = '/'
     
     @login_manager.user_loader
     def load_user(user_id):
@@ -71,6 +83,14 @@ def create_app(config_class=Config):
     
     # Register global context processors
     register_context_processors(app)
+    
+    # Initialize database connection pool at startup to prevent login delays
+    try:
+        from backend.utils.database import get_connection_pool
+        get_connection_pool()
+        logger.info("Database connection pool initialized at startup")
+    except Exception as e:
+        logger.warning(f"Failed to initialize database connection pool at startup: {e}")
     
     logger.info("Flask application created successfully")
     return app
@@ -139,9 +159,9 @@ def register_error_handlers(app):
         """Handle 401 errors"""
         logger.warning(f"401 error: {request.url}")
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
-            return jsonify({'error': 'Authentication required'}), 401
+            return jsonify({'error': 'Access forbidden'}), 401
         return render_template('error.html', 
-                             message='Authentication required',
+                             message='Access forbidden',
                              error_code=401), 401
     
     logger.info("Error handlers registered successfully")
@@ -167,10 +187,9 @@ def register_middleware(app):
             duration = (datetime.now() - request.start_time).total_seconds()
             logger.info(f"Response: {response.status_code} - Duration: {duration:.3f}s")
         
-        # Add security headers
-        response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-        response.headers['X-XSS-Protection'] = '1; mode=block'
+        # Add security headers using security utilities
+        from backend.utils.security import SecurityUtils
+        response = SecurityUtils.add_security_headers(response)
         
         return response
     
@@ -204,15 +223,19 @@ def register_context_processors(app):
             'current_year': datetime.now().year
         }
     
+    @app.context_processor
+    def inject_csrf_token():
+        """Inject CSRF token into all templates"""
+        from backend.utils.security import SecurityUtils
+        return {
+            'csrf_token': SecurityUtils.generate_csrf_token()
+        }
+    
     logger.info("Context processors registered successfully")
 
 
 # Create the application instance
 app = create_app()
-
-# Import required modules for error handlers and middleware
-from flask import request, redirect, url_for
-from datetime import datetime
 
 # Root route redirect
 @app.route('/')
@@ -220,13 +243,63 @@ def index():
     """Root route - redirect to dashboard"""
     return redirect(url_for('dashboard.dashboard'))
 
+
+@app.route('/api/cors-preflight', methods=['OPTIONS'])
+def cors_preflight():
+    """Handle CORS preflight requests for desktop apps"""
+    response = jsonify({'status': 'ok'})
+    response.headers['Access-Control-Allow-Origin'] = '*'
+    response.headers['Access-Control-Allow-Methods'] = 'GET, POST, PUT, DELETE, OPTIONS'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, X-Requested-With'
+    response.headers['Access-Control-Allow-Credentials'] = 'true'
+    return response
+
+
+@app.route('/api/health')
+def health_check():
+    """Health check endpoint for desktop app connectivity"""
+    return jsonify({
+        'status': 'healthy',
+        'message': 'Flask backend is running',
+        'timestamp': datetime.now().isoformat(),
+        'session_enabled': True,
+        'cors_enabled': True,
+        'config': {
+            'environment': os.environ.get('FLASK_ENV', 'development'),
+            'debug': config.DEBUG,
+            'database_connected': True  # TODO: Add actual database health check
+        }
+    })
+
+
+@app.route('/favicon.ico')
+def favicon():
+    """Serve favicon to prevent 404 errors"""
+    return '', 204  # No content response
+
+@app.route('/api/test-desktop')
+def test_desktop():
+    """Test endpoint specifically for desktop app connectivity"""
+    return jsonify({
+        'success': True,
+        'message': 'Desktop app can reach Flask backend',
+        'timestamp': datetime.now().isoformat(),
+        'request_headers': dict(request.headers),
+        'request_cookies': dict(request.cookies),
+        'request_method': request.method,
+        'request_url': request.url
+    })
+
+
 if __name__ == '__main__':
     logger.info("Starting Inventory Management System...")
-    logger.info(f"Environment: {app.config.get('ENV', 'production')}")
-    logger.info(f"Debug mode: {app.config.get('DEBUG', False)}")
+    logger.info(f"Environment: {os.environ.get('FLASK_ENV', 'development')}")
+    logger.info(f"Debug mode: {config.DEBUG}")
+    logger.info(f"Database: {config.DB_HOST}:{config.DB_PORT}/{config.DB_NAME}")
     
+    # Use configuration for host and port
     app.run(
-        host=app.config.get('HOST', '0.0.0.0'),
-        port=app.config.get('PORT', 5000),
-        debug=app.config.get('DEBUG', False)
+        host=config.APP_HOST,
+        port=config.APP_PORT,
+        debug=config.DEBUG
     )

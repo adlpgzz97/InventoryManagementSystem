@@ -1,20 +1,20 @@
 """
 Stock model for Inventory Management System
-Handles stock items, inventory tracking, and stock operations
+Pure data container with basic CRUD operations
 """
 
 from typing import Optional, Dict, Any, List
-import logging
 from datetime import datetime
+import logging
 
-from utils.database import execute_query
+from backend.models.base_model import BaseModel
+from backend.utils.database import execute_query
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 
-class StockItem:
-    """Stock item model for inventory management"""
+class StockItem(BaseModel):
+    """Stock item model - data container only"""
     
     def __init__(self, id: str, product_id: str, bin_id: str, on_hand: int = 0,
                  qty_reserved: int = 0, batch_id: str = None, expiry_date: datetime = None,
@@ -33,7 +33,7 @@ class StockItem:
     
     @property
     def available_stock(self) -> int:
-        """Calculate available stock (on_hand - reserved)"""
+        """Calculate available stock (on_hand - reserved) - basic computed property"""
         return max(0, self.on_hand - self.qty_reserved)
     
     @classmethod
@@ -57,7 +57,7 @@ class StockItem:
             'product_id': self.product_id,
             'bin_id': self.bin_id,
             'on_hand': self.on_hand,
-            'qty_reserved': self.qty_reserved,
+            'reserved': self.qty_reserved,
             'available_stock': self.available_stock,
             'batch_id': self.batch_id,
             'expiry_date': self.expiry_date,
@@ -66,7 +66,7 @@ class StockItem:
     
     @classmethod
     def get_by_id(cls, stock_id: str) -> Optional['StockItem']:
-        """Get stock item by ID"""
+        """Get stock item by ID - basic CRUD operation"""
         try:
             result = execute_query(
                 """
@@ -88,7 +88,7 @@ class StockItem:
     
     @classmethod
     def get_by_product_and_bin(cls, product_id: str, bin_id: str) -> Optional['StockItem']:
-        """Get stock item by product and bin"""
+        """Get stock item by product and bin - basic CRUD operation"""
         try:
             result = execute_query(
                 """
@@ -106,12 +106,12 @@ class StockItem:
             return None
             
         except Exception as e:
-            logger.error(f"Error getting stock item by product {product_id} and bin {bin_id}: {e}")
+            logger.error(f"Error getting stock item by product and bin: {e}")
             return None
     
     @classmethod
     def get_by_product(cls, product_id: str) -> List['StockItem']:
-        """Get all stock items for a product"""
+        """Get all stock items for a product - basic CRUD operation"""
         try:
             results = execute_query(
                 """
@@ -128,12 +128,12 @@ class StockItem:
             return [cls.from_dict(result) for result in results]
             
         except Exception as e:
-            logger.error(f"Error getting stock items for product {product_id}: {e}")
+            logger.error(f"Error getting stock items by product: {e}")
             return []
     
     @classmethod
     def get_by_bin(cls, bin_id: str) -> List['StockItem']:
-        """Get all stock items in a bin"""
+        """Get all stock items in a bin - basic CRUD operation"""
         try:
             results = execute_query(
                 """
@@ -150,14 +150,89 @@ class StockItem:
             return [cls.from_dict(result) for result in results]
             
         except Exception as e:
-            logger.error(f"Error getting stock items for bin {bin_id}: {e}")
+            logger.error(f"Error getting stock items by bin: {e}")
+            return []
+    
+    @classmethod
+    def get_all_with_locations(cls) -> List[Dict[str, Any]]:
+        """Get all stock items with location and product information"""
+        try:
+            results = execute_query(
+                """
+                SELECT 
+                    si.id, si.product_id, si.bin_id, si.on_hand, si.qty_reserved,
+                    si.batch_id, si.expiry_date, si.created_at,
+                    p.name as product_name, p.sku as product_sku,
+                    b.code as bin_code,
+                    l.full_code as location_code,
+                    w.name as warehouse_name
+                FROM stock_items si
+                JOIN products p ON si.product_id = p.id
+                JOIN bins b ON si.bin_id = b.id
+                LEFT JOIN locations l ON b.location_id = l.id
+                LEFT JOIN warehouses w ON l.warehouse_id = w.id
+                ORDER BY p.name, b.code
+                """,
+                fetch_all=True
+            )
+            
+            return results if results else []
+            
+        except Exception as e:
+            logger.error(f"Error getting stock items with locations: {e}")
+            return []
+    
+    @classmethod
+    def get_by_batch(cls, batch_id: str) -> List['StockItem']:
+        """Get all stock items for a batch - basic CRUD operation"""
+        try:
+            results = execute_query(
+                """
+                SELECT id, product_id, bin_id, on_hand, qty_reserved,
+                       batch_id, expiry_date, created_at
+                FROM stock_items 
+                WHERE batch_id = %s
+                ORDER BY created_at DESC
+                """,
+                (batch_id,),
+                fetch_all=True
+            )
+            
+            return [cls.from_dict(result) for result in results]
+            
+        except Exception as e:
+            logger.error(f"Error getting stock items by batch: {e}")
+            return []
+    
+    @classmethod
+    def get_all(cls, limit: int = None, offset: int = None) -> List['StockItem']:
+        """Get all stock items with optional pagination - basic CRUD operation"""
+        try:
+            query = """
+                SELECT id, product_id, bin_id, on_hand, qty_reserved,
+                       batch_id, expiry_date, created_at
+                FROM stock_items
+                ORDER BY created_at DESC
+            """
+            
+            if limit:
+                query += f" LIMIT {limit}"
+            if offset:
+                query += f" OFFSET {offset}"
+            
+            results = execute_query(query, fetch_all=True)
+            
+            return [cls.from_dict(result) for result in results]
+            
+        except Exception as e:
+            logger.error(f"Error getting all stock items: {e}")
             return []
     
     @classmethod
     def create(cls, product_id: str, bin_id: str, on_hand: int = 0,
                qty_reserved: int = 0, batch_id: str = None,
                expiry_date: datetime = None) -> Optional['StockItem']:
-        """Create a new stock item"""
+        """Create a new stock item - basic CRUD operation"""
         try:
             result = execute_query(
                 """
@@ -179,225 +254,72 @@ class StockItem:
             logger.error(f"Error creating stock item: {e}")
             return None
     
-    def update_stock(self, on_hand: int = None, qty_reserved: int = None) -> bool:
-        """Update stock quantities"""
+    def update(self, **kwargs) -> bool:
+        """Update stock item attributes - basic CRUD operation"""
         try:
-            updates = []
+            # Build dynamic update query
+            fields = []
             values = []
             
-            if on_hand is not None:
-                updates.append("on_hand = %s")
-                values.append(on_hand)
+            for key, value in kwargs.items():
+                if hasattr(self, key):
+                    fields.append(f"{key} = %s")
+                    values.append(value)
             
-            if qty_reserved is not None:
-                updates.append("qty_reserved = %s")
-                values.append(qty_reserved)
-            
-            if not updates:
+            if not fields:
                 return False
             
             values.append(self.id)
             
             query = f"""
                 UPDATE stock_items 
-                SET {', '.join(updates)}
+                SET {', '.join(fields)}
                 WHERE id = %s
                 RETURNING id
             """
             
             result = execute_query(query, tuple(values), fetch_one=True)
-            
-            if result:
-                # Update instance attributes
-                if on_hand is not None:
-                    self.on_hand = on_hand
-                if qty_reserved is not None:
-                    self.qty_reserved = qty_reserved
-                return True
-            
-            return False
+            return result is not None
             
         except Exception as e:
             logger.error(f"Error updating stock item {self.id}: {e}")
             return False
     
-    def reserve_stock(self, quantity: int) -> bool:
-        """Reserve stock quantity"""
-        if quantity > self.available_stock:
-            return False
-        
-        return self.update_stock(qty_reserved=self.qty_reserved + quantity)
-    
-    def release_reserved_stock(self, quantity: int) -> bool:
-        """Release reserved stock quantity"""
-        if quantity > self.qty_reserved:
-            return False
-        
-        return self.update_stock(qty_reserved=self.qty_reserved - quantity)
-    
-    def add_stock(self, quantity: int) -> bool:
-        """Add stock quantity"""
-        return self.update_stock(on_hand=self.on_hand + quantity)
-    
-    def remove_stock(self, quantity: int) -> bool:
-        """Remove stock quantity"""
-        if quantity > self.available_stock:
-            return False
-        
-        return self.update_stock(on_hand=self.on_hand - quantity)
-    
     def delete(self) -> bool:
-        """Delete stock item"""
+        """Delete the stock item - basic CRUD operation"""
         try:
             result = execute_query(
                 "DELETE FROM stock_items WHERE id = %s RETURNING id",
                 (self.id,),
                 fetch_one=True
             )
-            
             return result is not None
             
         except Exception as e:
             logger.error(f"Error deleting stock item {self.id}: {e}")
             return False
-    
-    def is_expired(self) -> bool:
-        """Check if stock item is expired"""
-        if not self.expiry_date:
-            return False
-        
-        return datetime.now().date() > self.expiry_date
-    
-    def days_until_expiry(self) -> Optional[int]:
-        """Get days until expiry"""
-        if not self.expiry_date:
-            return None
-        
-        delta = self.expiry_date - datetime.now().date()
-        return delta.days
-    
-    @classmethod
-    def get_all(cls, limit: int = None, offset: int = None) -> List['StockItem']:
-        """Get all stock items with optional pagination"""
-        try:
-            query = """
-                SELECT id, product_id, bin_id, on_hand, qty_reserved,
-                       batch_id, expiry_date, created_at
-                FROM stock_items
-                ORDER BY created_at DESC
-            """
-            
-            if limit:
-                query += f" LIMIT {limit}"
-            if offset:
-                query += f" OFFSET {offset}"
-            
-            results = execute_query(query, fetch_all=True)
-            
-            return [cls.from_dict(result) for result in results]
-            
-        except Exception as e:
-            logger.error(f"Error getting all stock items: {e}")
-            return []
-
-    @classmethod
-    def get_all_with_locations(cls, limit: int = None, offset: int = None) -> List[Dict[str, Any]]:
-        """Get all stock items with full location hierarchy"""
-        try:
-            query = """
-                SELECT 
-                    si.id, si.product_id, si.bin_id, si.on_hand, si.qty_reserved,
-                    si.batch_id, si.expiry_date, si.created_at,
-                    p.name as product_name, p.sku as product_sku,
-                    b.code as bin_code,
-                    l.full_code as location_code,
-                    w.id as warehouse_id, w.name as warehouse_name, w.code as warehouse_code
-                FROM stock_items si
-                JOIN products p ON si.product_id = p.id
-                JOIN bins b ON si.bin_id = b.id
-                LEFT JOIN locations l ON b.location_id = l.id
-                LEFT JOIN warehouses w ON l.warehouse_id = w.id
-                ORDER BY si.created_at DESC
-            """
-            
-            if limit:
-                query += f" LIMIT {limit}"
-            if offset:
-                query += f" OFFSET {offset}"
-            
-            results = execute_query(query, fetch_all=True)
-            
-            # Convert to list of dictionaries with enhanced data
-            stock_items = []
-            for result in results:
-                stock_item = {
-                    'id': result['id'],
-                    'product_id': result['product_id'],
-                    'bin_id': result['bin_id'],
-                    'on_hand': result['on_hand'],
-                    'qty_reserved': result['qty_reserved'],
-                    'available_stock': result['on_hand'] - result['qty_reserved'],
-                    'batch_id': result['batch_id'],
-                    'expiry_date': result['expiry_date'],
-                    'created_at': result['created_at'],
-                    'product': {
-                        'name': result['product_name'],
-                        'sku': result['product_sku']
-                    },
-                    'bin': {
-                        'code': result['bin_code']
-                    },
-                    'location': {
-                        'code': result['location_code']
-                    },
-                    'warehouse': {
-                        'id': result['warehouse_id'],
-                        'name': result['warehouse_name'],
-                        'code': result['warehouse_code']
-                    },
-                    'warehouse_id': result['warehouse_id']
-                }
-                stock_items.append(stock_item)
-            
-            return stock_items
-            
-        except Exception as e:
-            logger.error(f"Error getting stock items with locations: {e}")
-            return []
 
 
-class StockTransaction:
-    """Stock transaction model for tracking stock movements"""
+class StockTransaction(BaseModel):
+    """Stock transaction model - data container only"""
     
     def __init__(self, id: str, stock_item_id: str, transaction_type: str,
                  quantity_change: int, quantity_before: int, quantity_after: int,
-                 notes: str = None, user_id: str = None, created_at: datetime = None):
+                 user_id: str = None, notes: str = None, reference_id: str = None,
+                 created_at: datetime = None):
         self.id = id
         self.stock_item_id = stock_item_id
         self.transaction_type = transaction_type
         self.quantity_change = quantity_change
         self.quantity_before = quantity_before
         self.quantity_after = quantity_after
-        self.notes = notes
         self.user_id = user_id
+        self.notes = notes
+        self.reference_id = reference_id
         self.created_at = created_at
     
     def __repr__(self):
         return f"<StockTransaction {self.transaction_type} (ID: {self.id})>"
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert stock transaction to dictionary"""
-        return {
-            'id': self.id,
-            'stock_item_id': self.stock_item_id,
-            'transaction_type': self.transaction_type,
-            'quantity_change': self.quantity_change,
-            'quantity_before': self.quantity_before,
-            'quantity_after': self.quantity_after,
-            'notes': self.notes,
-            'user_id': self.user_id,
-            'created_at': self.created_at
-        }
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'StockTransaction':
@@ -409,28 +331,38 @@ class StockTransaction:
             quantity_change=data['quantity_change'],
             quantity_before=data['quantity_before'],
             quantity_after=data['quantity_after'],
+            user_id=str(data['user_id']),
             notes=data.get('notes'),
-            user_id=data.get('user_id'),
+            reference_id=data.get('reference_id'),
             created_at=data.get('created_at')
         )
     
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert stock transaction to dictionary"""
+        return {
+            'id': self.id,
+            'stock_item_id': self.stock_item_id,
+            'transaction_type': self.transaction_type,
+            'quantity_change': self.quantity_change,
+            'quantity_before': self.quantity_before,
+            'quantity_after': self.quantity_after,
+            'user_id': self.user_id,
+            'notes': self.notes,
+            'reference_id': self.reference_id,
+            'created_at': self.created_at
+        }
+    
     @classmethod
-    def create(cls, stock_item_id: str, transaction_type: str, quantity_change: int,
-               quantity_before: int, quantity_after: int, notes: str = None,
-               user_id: str = None) -> Optional['StockTransaction']:
-        """Create a new stock transaction"""
+    def get_by_id(cls, transaction_id: str) -> Optional['StockTransaction']:
+        """Get transaction by ID - basic CRUD operation"""
         try:
             result = execute_query(
                 """
-                INSERT INTO stock_transactions 
-                (stock_item_id, transaction_type, quantity_change, quantity_before,
-                 quantity_after, notes, user_id)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                RETURNING id, stock_item_id, transaction_type, quantity_change,
-                          quantity_before, quantity_after, notes, user_id, created_at
+                SELECT id, stock_item_id, transaction_type, quantity_change,
+                       quantity_before, quantity_after, user_id, notes, reference_id, created_at
+                FROM stock_transactions WHERE id = %s
                 """,
-                (stock_item_id, transaction_type, quantity_change, quantity_before,
-                 quantity_after, notes, user_id),
+                (transaction_id,),
                 fetch_one=True
             )
             
@@ -439,28 +371,76 @@ class StockTransaction:
             return None
             
         except Exception as e:
-            logger.error(f"Error creating stock transaction: {e}")
+            logger.error(f"Error getting transaction by ID {transaction_id}: {e}")
             return None
     
     @classmethod
-    def get_by_stock_item(cls, stock_item_id: str, limit: int = None) -> List['StockTransaction']:
-        """Get transactions for a stock item"""
+    def get_by_stock_item(cls, stock_item_id: str) -> List['StockTransaction']:
+        """Get all transactions for a stock item - basic CRUD operation"""
         try:
-            query = """
+            results = execute_query(
+                """
                 SELECT id, stock_item_id, transaction_type, quantity_change,
-                       quantity_before, quantity_after, notes, user_id, created_at
+                       quantity_before, quantity_after, user_id, notes, reference_id, created_at
                 FROM stock_transactions 
                 WHERE stock_item_id = %s
                 ORDER BY created_at DESC
-            """
-            
-            if limit:
-                query += f" LIMIT {limit}"
-            
-            results = execute_query(query, (stock_item_id,), fetch_all=True)
+                """,
+                (stock_item_id,),
+                fetch_all=True
+            )
             
             return [cls.from_dict(result) for result in results]
             
         except Exception as e:
-            logger.error(f"Error getting transactions for stock item {stock_item_id}: {e}")
+            logger.error(f"Error getting transactions by stock item: {e}")
             return []
+    
+    @classmethod
+    def get_by_reference(cls, reference_id: str) -> List['StockTransaction']:
+        """Get all transactions for a reference ID - basic CRUD operation"""
+        try:
+            results = execute_query(
+                """
+                SELECT id, stock_item_id, transaction_type, quantity_change,
+                       quantity_before, quantity_after, user_id, notes, reference_id, created_at
+                FROM stock_transactions 
+                WHERE reference_id = %s
+                ORDER BY created_at ASC
+                """,
+                (reference_id,),
+                fetch_all=True
+            )
+            
+            return [cls.from_dict(result) for result in results]
+            
+        except Exception as e:
+            logger.error(f"Error getting transactions by reference: {e}")
+            return []
+    
+    @classmethod
+    def create(cls, stock_item_id: str, transaction_type: str,
+               quantity_change: int, quantity_before: int, quantity_after: int,
+               user_id: str, notes: str = None, reference_id: str = None) -> Optional['StockTransaction']:
+        """Create a new transaction - basic CRUD operation"""
+        try:
+            result = execute_query(
+                """
+                INSERT INTO stock_transactions (stock_item_id, transaction_type, quantity_change,
+                                              quantity_before, quantity_after, user_id, notes, reference_id)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                RETURNING id, stock_item_id, transaction_type, quantity_change,
+                          quantity_before, quantity_after, user_id, notes, reference_id, created_at
+                """,
+                (stock_item_id, transaction_type, quantity_change, quantity_before,
+                 quantity_after, user_id, notes, reference_id),
+                fetch_one=True
+            )
+            
+            if result:
+                return cls.from_dict(result)
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error creating transaction: {e}")
+            return None

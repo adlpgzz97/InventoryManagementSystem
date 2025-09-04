@@ -1,0 +1,401 @@
+{# JavaScript Components - Common JavaScript functions and patterns #}
+
+{# Common JavaScript Functions #}
+<script>
+// Utility Functions
+const Utils = {
+    // Show notification
+    showNotification: function(message, type = 'info', duration = 3000) {
+        const alertDiv = document.createElement('div');
+        alertDiv.className = `alert alert-${type} alert-dismissible fade show position-fixed`;
+        alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+        alertDiv.innerHTML = `
+            ${message}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        `;
+        document.body.appendChild(alertDiv);
+        
+        if (duration > 0) {
+            setTimeout(() => {
+                if (alertDiv.parentNode) {
+                    alertDiv.remove();
+                }
+            }, duration);
+        }
+    },
+
+    // Format currency
+    formatCurrency: function(amount, currency = 'USD') {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: currency
+        }).format(amount);
+    },
+
+    // Format date
+    formatDate: function(date) {
+        if (!date) return '';
+        const d = new Date(date);
+        return d.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    },
+
+    // Format datetime
+    formatDateTime: function(date) {
+        if (!date) return '';
+        const d = new Date(date);
+        return d.toLocaleString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    },
+
+    // Debounce function
+    debounce: function(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    },
+
+    // Generate UUID
+    generateUUID: function() {
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+            const r = Math.random() * 16 | 0;
+            const v = c == 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
+};
+
+// Table Management
+const TableManager = {
+    // Initialize table with sorting and selection
+    initTable: function(tableId, options = {}) {
+        const table = document.getElementById(tableId);
+        if (!table) return;
+
+        // Initialize sorting
+        if (options.sortable !== false) {
+            this.initSorting(table);
+        }
+
+        // Initialize selection
+        if (options.selectable !== false) {
+            this.initSelection(table);
+        }
+
+        // Initialize search
+        if (options.searchable !== false) {
+            this.initSearch(table, options.searchInputId);
+        }
+
+        return table;
+    },
+
+    // Initialize table sorting
+    initSorting: function(table) {
+        const headers = table.querySelectorAll('th.sortable');
+        headers.forEach(header => {
+            header.addEventListener('click', () => {
+                this.sortTable(table, header);
+            });
+        });
+    },
+
+    // Sort table by column
+    sortTable: function(table, header) {
+        const column = header.dataset.column;
+        const type = header.dataset.type || 'text';
+        const tbody = table.querySelector('tbody');
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+
+        // Remove existing sort indicators
+        table.querySelectorAll('th.sortable i').forEach(icon => {
+            icon.className = 'fas fa-sort text-muted';
+        });
+
+        // Add sort indicator
+        const icon = header.querySelector('i');
+        const isAscending = !header.classList.contains('sort-asc');
+        icon.className = isAscending ? 'fas fa-sort-up text-primary' : 'fas fa-sort-down text-primary';
+        header.classList.toggle('sort-asc', isAscending);
+
+        // Sort rows
+        rows.sort((a, b) => {
+            const aValue = a.querySelector(`td[data-column="${column}"]`)?.textContent || '';
+            const bValue = b.querySelector(`td[data-column="${column}"]`)?.textContent || '';
+            
+            if (type === 'number') {
+                return isAscending ? 
+                    parseFloat(aValue) - parseFloat(bValue) : 
+                    parseFloat(bValue) - parseFloat(aValue);
+            } else {
+                return isAscending ? 
+                    aValue.localeCompare(bValue) : 
+                    bValue.localeCompare(aValue);
+            }
+        });
+
+        // Reorder rows
+        rows.forEach(row => tbody.appendChild(row));
+    },
+
+    // Initialize table selection
+    initSelection: function(table) {
+        const selectAll = table.querySelector('#select-all-' + table.id);
+        const rowSelectors = table.querySelectorAll('.row-selector');
+
+        if (selectAll) {
+            selectAll.addEventListener('change', (e) => {
+                rowSelectors.forEach(selector => {
+                    selector.checked = e.target.checked;
+                });
+                this.updateBulkActions(table);
+            });
+        }
+
+        rowSelectors.forEach(selector => {
+            selector.addEventListener('change', () => {
+                this.updateBulkActions(table);
+            });
+        });
+    },
+
+    // Update bulk actions visibility
+    updateBulkActions: function(table) {
+        const selectedRows = table.querySelectorAll('.row-selector:checked');
+        const bulkActions = document.getElementById('bulk-actions-' + table.id);
+        const selectedCount = document.getElementById('selected-count-' + table.id);
+
+        if (bulkActions && selectedCount) {
+            if (selectedRows.length > 0) {
+                bulkActions.style.display = 'block';
+                selectedCount.textContent = selectedRows.length;
+            } else {
+                bulkActions.style.display = 'none';
+            }
+        }
+    },
+
+    // Initialize table search
+    initSearch: function(table, searchInputId) {
+        const searchInput = document.getElementById(searchInputId);
+        if (!searchInput) return;
+
+        const debouncedSearch = Utils.debounce((searchTerm) => {
+            this.filterTable(table, searchTerm);
+        }, 300);
+
+        searchInput.addEventListener('input', (e) => {
+            debouncedSearch(e.target.value);
+        });
+    },
+
+    // Filter table by search term
+    filterTable: function(table, searchTerm) {
+        const rows = table.querySelectorAll('tbody tr');
+        const searchLower = searchTerm.toLowerCase();
+
+        rows.forEach(row => {
+            const text = row.textContent.toLowerCase();
+            row.style.display = text.includes(searchLower) ? '' : 'none';
+        });
+    }
+};
+
+// Modal Management
+const ModalManager = {
+    // Show modal
+    show: function(modalId) {
+        const modal = new bootstrap.Modal(document.getElementById(modalId));
+        modal.show();
+    },
+
+    // Hide modal
+    hide: function(modalId) {
+        const modal = bootstrap.Modal.getInstance(document.getElementById(modalId));
+        if (modal) {
+            modal.hide();
+        }
+    },
+
+    // Initialize modal forms
+    initForm: function(modalId, options = {}) {
+        const form = document.getElementById(modalId + '-form');
+        if (!form) return;
+
+        form.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.handleFormSubmit(form, options);
+        });
+    },
+
+    // Handle form submission
+    handleFormSubmit: function(form, options) {
+        const formData = new FormData(form);
+        const data = Object.fromEntries(formData.entries());
+
+        if (options.onSubmit) {
+            options.onSubmit(data, form);
+        }
+    },
+
+    // Reset form
+    resetForm: function(modalId) {
+        const form = document.getElementById(modalId + '-form');
+        if (form) {
+            form.reset();
+        }
+    }
+};
+
+// API Management
+const APIManager = {
+    // Make API request
+    request: async function(url, options = {}) {
+        const defaultOptions = {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            ...options
+        };
+
+        try {
+            const response = await fetch(url, defaultOptions);
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+
+            const contentType = response.headers.get('content-type');
+            if (contentType && contentType.includes('application/json')) {
+                return await response.json();
+            } else {
+                return await response.text();
+            }
+        } catch (error) {
+            console.error('API request failed:', error);
+            Utils.showNotification('API request failed: ' + error.message, 'danger');
+            throw error;
+        }
+    },
+
+    // GET request
+    get: function(url, options = {}) {
+        return this.request(url, { ...options, method: 'GET' });
+    },
+
+    // POST request
+    post: function(url, data, options = {}) {
+        return this.request(url, {
+            ...options,
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+    },
+
+    // PUT request
+    put: function(url, data, options = {}) {
+        return this.request(url, {
+            ...options,
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+    },
+
+    // DELETE request
+    delete: function(url, options = {}) {
+        return this.request(url, { ...options, method: 'DELETE' });
+    }
+};
+
+// Export functionality
+const ExportManager = {
+    // Export table to CSV
+    exportToCSV: function(tableId, filename = 'export.csv') {
+        const table = document.getElementById(tableId);
+        if (!table) return;
+
+        const rows = Array.from(table.querySelectorAll('tr'));
+        const csvContent = rows.map(row => {
+            const cells = Array.from(row.querySelectorAll('td, th'));
+            return cells.map(cell => {
+                let text = cell.textContent.trim();
+                // Escape quotes and wrap in quotes if contains comma
+                if (text.includes(',') || text.includes('"')) {
+                    text = '"' + text.replace(/"/g, '""') + '"';
+                }
+                return text;
+            }).join(',');
+        }).join('\n');
+
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+    },
+
+    // Export selected rows to CSV
+    exportSelectedToCSV: function(tableId, filename = 'selected-export.csv') {
+        const table = document.getElementById(tableId);
+        if (!table) return;
+
+        const selectedRows = table.querySelectorAll('.row-selector:checked');
+        if (selectedRows.length === 0) {
+            Utils.showNotification('No rows selected for export', 'warning');
+            return;
+        }
+
+        const headerRow = table.querySelector('thead tr');
+        const csvContent = [Array.from(headerRow.querySelectorAll('th')).map(th => th.textContent.trim()).join(',')];
+
+        selectedRows.forEach(selector => {
+            const row = selector.closest('tr');
+            const cells = Array.from(row.querySelectorAll('td'));
+            const rowData = cells.map(cell => {
+                let text = cell.textContent.trim();
+                if (text.includes(',') || text.includes('"')) {
+                    text = '"' + text.replace(/"/g, '""') + '"';
+                }
+                return text;
+            }).join(',');
+            csvContent.push(rowData);
+        });
+
+        const blob = new Blob([csvContent.join('\n')], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+    }
+};
+
+// Initialize common functionality when DOM is loaded
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize tooltips
+    const tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+    tooltipTriggerList.map(function(tooltipTriggerEl) {
+        return new bootstrap.Tooltip(tooltipTriggerEl);
+    });
+
+    // Initialize popovers
+    const popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'));
+    popoverTriggerList.map(function(popoverTriggerEl) {
+        return new bootstrap.Popover(popoverTriggerEl);
+    });
+});
+</script>

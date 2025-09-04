@@ -1,94 +1,102 @@
 #!/usr/bin/env python3
 """
-Script to check what users exist in the database
+Script to check existing users and create admin user if needed
 """
 
-import psycopg2
-import psycopg2.extras
-import logging
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Database configuration
-DB_CONFIG = {
-    'host': 'localhost',
-    'port': '5432',
-    'database': 'inventory_db',
-    'user': 'postgres',
-    'password': 'TatUtil97=='
-}
+from backend.utils.database import execute_query
+from backend.models.user import User
+import bcrypt
 
 def check_users():
-    """Check what users exist in the database"""
+    """Check existing users in the database"""
     try:
-        with psycopg2.connect(**DB_CONFIG) as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                # Check if users table exists
-                cursor.execute("""
-                    SELECT table_name 
-                    FROM information_schema.tables 
-                    WHERE table_schema = 'public' 
-                    AND table_name = 'users'
-                """)
-                
-                if not cursor.fetchone():
-                    logger.info("Users table does not exist")
-                    return
-                
-                # First check the table structure
-                cursor.execute("""
-                    SELECT column_name, data_type 
-                    FROM information_schema.columns 
-                    WHERE table_name = 'users' 
-                    ORDER BY ordinal_position
-                """)
-                
-                columns = cursor.fetchall()
-                logger.info("Users table structure:")
-                for col in columns:
-                    logger.info(f"  {col['column_name']}: {col['data_type']}")
-                
-                # List all users
-                cursor.execute("""
-                    SELECT * FROM users 
-                    ORDER BY username
-                """)
-                
-                results = cursor.fetchall()
-                
-                if results:
-                    logger.info(f"Found {len(results)} users:")
-                    for user in results:
-                        logger.info(f"  Username: {user['username']}, Email: {user['email']}, Role: {user['role']}")
-                else:
-                    logger.info("No users found in the database")
-                    
+        # Check if users table exists and has data
+        result = execute_query("SELECT COUNT(*) as count FROM users", fetch_one=True)
+        if result:
+            print(f"Total users in database: {result['count']}")
+        
+        # Get all users
+        users = execute_query("SELECT id, username, role, created_at FROM users", fetch_all=True)
+        if users:
+            print("\nExisting users:")
+            for user in users:
+                print(f"  - {user['username']} (Role: {user['role']}, ID: {user['id']})")
+        else:
+            print("\nNo users found in database")
+            
     except Exception as e:
-        logger.error(f"Error checking users: {e}")
+        print(f"Error checking users: {e}")
+        return False
+    
+    return True
 
-def check_auth_service():
-    """Check if there's an auth service that creates default users"""
+def create_admin_user():
+    """Create admin user if it doesn't exist"""
     try:
-        with psycopg2.connect(**DB_CONFIG) as conn:
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cursor:
-                # Check if there are any other user-related tables
-                cursor.execute("""
-                    SELECT table_name 
-                    FROM information_schema.tables 
-                    WHERE table_schema = 'public' 
-                    AND table_name LIKE '%user%'
-                """)
-                
-                results = cursor.fetchall()
-                logger.info("User-related tables:")
-                for table in results:
-                    logger.info(f"  {table['table_name']}")
-                    
+        # Check if admin user already exists
+        admin_user = execute_query(
+            "SELECT id FROM users WHERE username = 'admin'", 
+            fetch_one=True
+        )
+        
+        if admin_user:
+            print("Admin user already exists")
+            return True
+        
+        # Create admin user
+        password = "admin123"
+        password_hash = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+        
+        result = execute_query(
+            """
+            INSERT INTO users (username, password_hash, role) 
+            VALUES (%s, %s, %s) 
+            RETURNING id, username, role
+            """,
+            ('admin', password_hash, 'admin'),
+            fetch_one=True
+        )
+        
+        if result:
+            print(f"Admin user created successfully: {result['username']} (Role: {result['role']})")
+            return True
+        else:
+            print("Failed to create admin user")
+            return False
+            
     except Exception as e:
-        logger.error(f"Error checking auth service: {e}")
+        print(f"Error creating admin user: {e}")
+        return False
+
+def test_authentication():
+    """Test authentication for admin user"""
+    try:
+        user = User.authenticate('admin', 'admin123')
+        if user:
+            print(f"\nAuthentication test successful for {user.username}")
+            return True
+        else:
+            print("\nAuthentication test failed")
+            return False
+            
+    except Exception as e:
+        print(f"Error testing authentication: {e}")
+        return False
 
 if __name__ == "__main__":
-    check_users()
-    check_auth_service()
+    print("=== User Management Script ===\n")
+    
+    # Check existing users
+    if check_users():
+        print("\n--- Creating Admin User ---")
+        if create_admin_user():
+            print("\n--- Testing Authentication ---")
+            test_authentication()
+        else:
+            print("Failed to create admin user")
+    else:
+        print("Failed to check users")

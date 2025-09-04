@@ -178,19 +178,13 @@
                         <div class="text-center py-3">
                             <i class="fas fa-warehouse text-muted fa-2x mb-2"></i>
                             <p class="text-muted small mb-0">No storage locations defined</p>
-                            <small class="text-muted">Click "Configure" to set up storage structure</small>
+                            <small class="text-muted">Add locations from the Locations page</small>
                         </div>
                     {% endif %}
                 </div>
             </div>
             <div class="card-footer">
                 <div class="btn-group btn-group-sm w-100">
-                    <button class="btn btn-outline-primary edit-btn" 
-                            data-type="warehouse" 
-                            data-id="{{ warehouse.id }}"
-                            title="Edit Storage Structure">
-                        <i class="bi bi-gear"></i> Configure
-                    </button>
                     <button class="btn btn-outline-info" 
                             onclick="window.location.href='/stock?warehouse={{ warehouse.id }}'"
                             title="View Stock in this Warehouse">
@@ -198,8 +192,8 @@
                     </button>
                     <button class="btn btn-outline-secondary" 
                             onclick="window.location.href='{{ url_for('warehouses.warehouse_hierarchy', warehouse_id=warehouse.id) }}'"
-                            title="View Hierarchical Structure">
-                        <i class="bi bi-sitemap"></i> Hierarchy
+                            title="View Locations">
+                        <i class="bi bi-sitemap"></i> View Locations
                     </button>
                 </div>
             </div>

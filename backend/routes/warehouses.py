@@ -7,8 +7,9 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 import logging
 
-from models.warehouse import Warehouse, Location, Bin
-from models.stock import StockItem
+from backend.models.warehouse import Warehouse, Location, Bin
+from backend.models.stock import StockItem
+from backend.utils.database import execute_query
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -591,3 +592,264 @@ def api_warehouse_hierarchy(warehouse_id):
             'success': False,
             'error': 'Failed to load warehouse hierarchy'
         }), 500
+
+
+@warehouses_bp.route('/api/bin/<bin_code>')
+@login_required
+def get_bin_details(bin_code):
+    """Get detailed information about a bin including stock items"""
+    try:
+        # Get bin by code
+        bin_obj = Bin.get_by_code(bin_code)
+        if not bin_obj:
+            return jsonify({'error': 'Bin not found'}), 404
+        
+        # Get warehouse information
+        warehouse = bin_obj.get_warehouse()
+        
+        # Get location information
+        location_code = None
+        if bin_obj.location_id:
+            location_result = execute_query(
+                "SELECT full_code FROM locations WHERE id = %s",
+                (bin_obj.location_id,),
+                fetch_one=True
+            )
+            if location_result:
+                location_code = location_result['full_code']
+        
+        # Get stock items in this bin
+        stock_items = StockItem.get_by_bin(bin_obj.id)
+        
+        # Format stock items data
+        formatted_stock_items = []
+        for item in stock_items:
+            # Get product information
+            from backend.models.product import Product
+            product = Product.get_by_id(item.product_id)
+            
+            formatted_stock_items.append({
+                'id': item.id,
+                'product_name': product.name if product else 'Unknown Product',
+                'sku': product.sku if product else 'N/A',
+                'barcode': product.barcode if product else None,
+                'on_hand': item.on_hand,
+                'qty_reserved': item.qty_reserved,
+                'total_qty': item.on_hand + item.qty_reserved,
+                'batch_id': item.batch_id,
+                'expiry_date': item.expiry_date.isoformat() if item.expiry_date else None
+            })
+        
+        # Check if bin actually has stock (items with quantity > 0)
+        has_actual_stock = any(item.on_hand > 0 for item in stock_items)
+        
+        # Format bin data
+        bin_data = {
+            'id': bin_obj.id,
+            'code': bin_obj.code,
+            'location_code': location_code,
+            'warehouse_id': warehouse.id if warehouse else None,
+            'warehouse_name': warehouse.name if warehouse else None,
+            'warehouse_code': warehouse.code if warehouse else None,
+            'warehouse_address': warehouse.address if warehouse else None,
+            'has_stock': has_actual_stock,
+            'stock_items': formatted_stock_items
+        }
+        
+        return jsonify({
+            'bin': bin_data,
+            'stock_items': formatted_stock_items
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting bin details: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Failed to get bin details: {str(e)}'}), 500
+
+
+@warehouses_bp.route('/api/bin/<bin_code>/change-location', methods=['POST'])
+@login_required
+def change_bin_location(bin_code):
+    """Change the location of a bin"""
+    try:
+        data = request.get_json()
+        new_location_code = data.get('new_location_code')
+        notes = data.get('notes', '')
+        
+        if not new_location_code:
+            return jsonify({'error': 'New location code is required'}), 400
+        
+        # Get the bin
+        bin_obj = Bin.get_by_code(bin_code)
+        if not bin_obj:
+            return jsonify({'error': 'Bin not found'}), 404
+        
+        # Get the new location
+        from utils.database import execute_query
+        location_result = execute_query(
+            "SELECT id, full_code FROM locations WHERE full_code = %s",
+            (new_location_code,),
+            fetch_one=True
+        )
+        
+        if not location_result:
+            return jsonify({'error': 'Location not found'}), 404
+        
+        # Update the bin's location
+        update_result = execute_query(
+            "UPDATE bins SET location_id = %s WHERE id = %s RETURNING id",
+            (location_result['id'], bin_obj.id),
+            fetch_one=True
+        )
+        
+        if update_result:
+            return jsonify({
+                'success': True,
+                'message': f'Bin {bin_code} location changed to {new_location_code}',
+                'bin_code': bin_code,
+                'new_location_code': new_location_code
+            })
+        else:
+            return jsonify({'error': 'Failed to update bin location'}), 500
+            
+    except Exception as e:
+        logger.error(f"Error changing bin location: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Failed to change bin location: {str(e)}'}), 500
+
+
+@warehouses_bp.route('/api/locations/search')
+@login_required
+def search_locations():
+    """Search for locations by code or name"""
+    try:
+        query = request.args.get('q', '').strip()
+        
+        if not query:
+            return jsonify({
+                'success': True,
+                'locations': []
+            })
+        
+        from utils.database import execute_query
+        locations = execute_query(
+            """
+            SELECT id, full_code, name, description, warehouse_id
+            FROM locations 
+            WHERE full_code ILIKE %s OR name ILIKE %s
+            ORDER BY full_code
+            LIMIT 20
+            """,
+            (f'%{query}%', f'%{query}%'),
+            fetch_all=True
+        )
+        
+        return jsonify({
+            'success': True,
+            'locations': locations
+        })
+        
+    except Exception as e:
+        logger.error(f"Error searching locations: {e}")
+        return jsonify({
+            'success': False,
+            'error': 'Failed to search locations'
+        }), 500
+
+
+@warehouses_bp.route('/api/rack/delete', methods=['POST'])
+@login_required
+def delete_rack():
+    """Delete a rack and all its associated locations and bins"""
+    try:
+        data = request.get_json()
+        area_code = data.get('area_code')
+        rack_code = data.get('rack_code')
+        
+        if not area_code or not rack_code:
+            return jsonify({'error': 'Area code and rack code are required'}), 400
+        
+        # Get the warehouse ID from the current request context
+        # We need to find locations that match the rack pattern
+        from utils.database import execute_query
+        
+        # Find all locations that belong to this rack
+        # The pattern is: {warehouse_code}{area_number}{rack_letter}{level_number}
+        # We need to find locations where the rack letter matches
+        rack_letter = rack_code[1:]  # Remove 'R' prefix from rack_code (e.g., R01 -> 01)
+        
+        # Convert rack number back to letter (R01 -> A, R02 -> B, etc.)
+        try:
+            rack_number = int(rack_letter)
+            rack_letter_char = chr(ord('A') + rack_number - 1)
+        except (ValueError, OverflowError):
+            return jsonify({'error': 'Invalid rack code format'}), 400
+        
+        # Find locations that match this rack pattern
+        # Pattern: {warehouse_code}{area_number}{rack_letter}{level_number}
+        area_number = area_code[1:]  # Remove 'A' prefix (e.g., A1 -> 1)
+        
+        # Build the pattern to match locations
+        # We need to find all locations that start with the warehouse code + area + rack letter
+        pattern = f'%{area_number}{rack_letter_char}%'
+        
+        locations_result = execute_query(
+            """
+            SELECT id, full_code, warehouse_id
+            FROM locations 
+            WHERE full_code LIKE %s
+            """,
+            (pattern,),
+            fetch_all=True
+        )
+        
+        if not locations_result:
+            return jsonify({'error': 'No locations found for this rack'}), 404
+        
+        # Check if any of these locations have bins
+        location_ids = [loc['id'] for loc in locations_result]
+        
+        # Check for any bins in these locations
+        bins_check = execute_query(
+            """
+            SELECT COUNT(*) as bin_count
+            FROM bins 
+            WHERE location_id = ANY(%s::uuid[])
+            """,
+            (location_ids,),
+            fetch_one=True
+        )
+        
+        if bins_check and bins_check['bin_count'] > 0:
+            return jsonify({
+                'error': f'Cannot delete rack: {bins_check["bin_count"]} bins are still associated with this rack'
+            }), 400
+        
+        # Delete all locations in this rack (no bins to delete since we confirmed there are none)
+        deleted_locations = execute_query(
+            """
+            DELETE FROM locations 
+            WHERE id = ANY(%s::uuid[])
+            RETURNING id, full_code
+            """,
+            (location_ids,),
+            fetch_all=True
+        )
+        
+        if deleted_locations:
+            return jsonify({
+                'success': True,
+                'message': f'Rack {rack_code} deleted successfully',
+                'deleted_locations': len(deleted_locations),
+                'locations': [loc['full_code'] for loc in deleted_locations]
+            })
+        else:
+            return jsonify({'error': 'No locations were deleted'}), 500
+            
+    except Exception as e:
+        logger.error(f"Error deleting rack: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Failed to delete rack: {str(e)}'}), 500

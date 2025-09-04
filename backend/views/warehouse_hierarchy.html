@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}{{ warehouse.name }} - Hierarchical View{% endblock %}
+{% block title %}{{ warehouse.name }} - Locations{% endblock %}
 
 {% block content %}
 <style>
@@ -321,7 +321,7 @@
     <div>
         <h1 class="h2">
             <i class="fas fa-sitemap me-2"></i>
-            {{ warehouse.name }} - Hierarchical View
+            {{ warehouse.name }} - Locations
         </h1>
         <p class="text-muted mb-0">
             <i class="fas fa-map-marker-alt me-1"></i>
@@ -346,9 +346,9 @@
     </div>
 </div>
 
-<!-- Hierarchy Summary -->
+<!-- Locations Summary -->
 <div class="hierarchy-summary">
-    <h5><i class="fas fa-chart-bar me-2"></i>Storage Overview</h5>
+    <h5><i class="fas fa-chart-bar me-2"></i>Locations Overview</h5>
     <div class="summary-grid">
         <div class="summary-item">
             <div class="summary-number text-primary">{{ hierarchical_data.total_locations }}</div>
@@ -380,7 +380,7 @@
     </div>
 </div>
 
-<!-- Hierarchical Structure -->
+<!-- Locations Structure -->
 <div class="hierarchy-container">
     {% if hierarchical_data.areas %}
         {% for area_code, area in hierarchical_data.areas.items()|sort %}
@@ -428,6 +428,13 @@
                                      <span class="stats-badge {% if rack.occupied_bins > 0 %}success{% else %}warning{% endif %} me-2">
                                          {{ rack.occupied_bins }}/{{ rack.total_bins }}
                                      </span>
+                                     {% if rack.total_bins == 0 %}
+                                     <button class="btn btn-sm btn-outline-danger me-2" 
+                                             onclick="deleteRack('{{ area_code }}', '{{ rack_code }}', '{{ rack.name }}')"
+                                             title="Delete empty rack (no bins)">
+                                         <i class="fas fa-trash"></i>
+                                     </button>
+                                     {% endif %}
                                      <i class="fas fa-chevron-down collapse-icon" id="rack-icon-{{ area_code }}-{{ rack_code }}"></i>
                                  </div>
                              </div>
@@ -458,7 +465,10 @@
                                                               <span class="empty-text">Empty</span>
                                                           </div>
                                                       {% else %}
-                                                          <div class="bin-item {% if bin.occupied %}occupied{% else %}empty{% endif %}">
+                                                          <div class="bin-item {% if bin.occupied %}occupied{% else %}empty{% endif %}" 
+                                                               style="cursor: pointer;" 
+                                                               onclick="binDetailsManager.showBinDetails('{{ bin.code }}')"
+                                                               title="Click to view bin details">
                                                               <div class="bin-content">
                                                                   <strong>{{ bin.code }}</strong>
                                                                   <br>
@@ -483,17 +493,7 @@
                                       </div>
                                      {% endfor %}
                                  </div>
-                                 
-                                 {% if rack.total_bins > 0 %}
-                                 <div class="rack-utilization">
-                                     <div class="utilization-bar">
-                                         {% set rack_utilization = (rack.occupied_bins / rack.total_bins * 100) %}
-                                         <div class="utilization-fill {% if rack_utilization > 80 %}high{% elif rack_utilization > 60 %}medium{% else %}low{% endif %}" 
-                                              style="width: {{ rack_utilization }}%"></div>
-                                     </div>
-                                     <small class="text-muted">Utilization: {{ "%.1f"|format(rack_utilization) }}%</small>
-                                 </div>
-                                 {% endif %}
+
                              </div>
                          </div>
                      </div>
@@ -505,14 +505,47 @@
     {% else %}
         <div class="text-center py-5">
             <i class="fas fa-sitemap fa-3x text-muted mb-3"></i>
-            <h4 class="text-muted">No Hierarchical Structure</h4>
-            <p class="text-muted">This warehouse doesn't have a hierarchical location structure configured.</p>
+            <h4 class="text-muted">No Locations</h4>
+            <p class="text-muted">This warehouse doesn't have any locations configured yet.</p>
             <a href="{{ url_for('warehouses.edit_warehouse', warehouse_id=warehouse.id) }}?modal=1" 
                class="btn btn-primary">
-                <i class="fas fa-cog me-1"></i> Configure Structure
+                <i class="fas fa-cog me-1"></i> Edit Warehouse
             </a>
         </div>
     {% endif %}
+</div>
+{% endblock %}
+
+{% block modals %}
+{% include 'bin_details_modal.html' %}
+
+<!-- Delete Rack Confirmation Modal -->
+<div class="modal fade" id="deleteRackModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-exclamation-triangle me-2 text-warning"></i>
+                    Delete Rack
+                </h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    <strong>Warning:</strong> This action cannot be undone.
+                </div>
+                <p>Are you sure you want to delete the rack <strong id="deleteRackName"></strong>?</p>
+                <p class="text-muted">This will permanently remove all locations associated with this rack. This rack has no bins, so it's safe to delete.</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmDeleteRack">
+                    <i class="fas fa-trash me-1"></i> Delete Rack
+                </button>
+            </div>
+        </div>
+    </div>
 </div>
 {% endblock %}
 
@@ -586,19 +619,96 @@ function collapseAll() {
     rackHeaders.forEach(header => header.classList.add('collapsed'));
 }
 
+// Delete rack functionality
+let currentRackToDelete = null;
+
+function deleteRack(areaCode, rackCode, rackName) {
+    currentRackToDelete = { areaCode, rackCode, rackName };
+    document.getElementById('deleteRackName').textContent = rackName;
+    
+    const modal = new bootstrap.Modal(document.getElementById('deleteRackModal'));
+    modal.show();
+}
+
+async function confirmDeleteRack() {
+    if (!currentRackToDelete) return;
+    
+    const { areaCode, rackCode } = currentRackToDelete;
+    const submitBtn = document.getElementById('confirmDeleteRack');
+    const originalText = submitBtn.innerHTML;
+    
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Deleting...';
+    submitBtn.disabled = true;
+    
+    try {
+        const response = await fetch(`/warehouses/api/rack/delete`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'same-origin',
+            body: JSON.stringify({
+                area_code: areaCode,
+                rack_code: rackCode
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            // Close the modal
+            const modal = bootstrap.Modal.getInstance(document.getElementById('deleteRackModal'));
+            modal.hide();
+            
+            // Remove the rack from the UI
+            const rackCard = document.querySelector(`[onclick*="${areaCode}-${rackCode}"]`).closest('.rack-card');
+            if (rackCard) {
+                rackCard.remove();
+            }
+            
+            // Show success message
+            showSuccessMessage(`Rack ${currentRackToDelete.rackName} has been deleted successfully.`);
+            
+            // Refresh the page to update statistics
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+        } else {
+            alert('Error: ' + (data.error || 'Failed to delete rack'));
+        }
+    } catch (error) {
+        console.error('Delete rack error:', error);
+        alert('Network error occurred');
+    } finally {
+        submitBtn.innerHTML = originalText;
+        submitBtn.disabled = false;
+        currentRackToDelete = null;
+    }
+}
+
+function showSuccessMessage(message) {
+    // Create a temporary success alert
+    const alertDiv = document.createElement('div');
+    alertDiv.className = 'alert alert-success alert-dismissible fade show position-fixed';
+    alertDiv.style.cssText = 'top: 20px; right: 20px; z-index: 9999; min-width: 300px;';
+    alertDiv.innerHTML = `
+        <i class="fas fa-check-circle me-2"></i>
+        ${message}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    `;
+    
+    document.body.appendChild(alertDiv);
+    
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+        if (alertDiv.parentNode) {
+            alertDiv.remove();
+        }
+    }, 5000);
+}
+
  // Initialize page
  document.addEventListener('DOMContentLoaded', function() {
-     // Add click handlers for better UX
-     const binItems = document.querySelectorAll('.bin-item');
-     binItems.forEach(bin => {
-         bin.addEventListener('click', function() {
-             const binCode = this.querySelector('strong').textContent;
-             const fullCode = this.querySelector('small').textContent;
-             // You can add functionality here to show bin details or navigate to stock view
-             console.log('Bin clicked:', binCode, 'Location:', fullCode);
-         });
-     });
-     
      // Add hover effects for better interactivity
      const rackCards = document.querySelectorAll('.rack-card');
      rackCards.forEach(card => {
@@ -609,6 +719,9 @@ function collapseAll() {
              this.style.transform = 'translateY(0)';
          });
      });
+     
+     // Add event listener for delete rack confirmation
+     document.getElementById('confirmDeleteRack').addEventListener('click', confirmDeleteRack);
  });
 </script>
 {% endblock %}

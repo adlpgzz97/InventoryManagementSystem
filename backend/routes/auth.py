@@ -3,12 +3,13 @@ Authentication Routes for Inventory Management System
 Handles login, logout, and authentication-related routes
 """
 
-from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, session
 from flask_login import login_user, logout_user, login_required, current_user
 import logging
 
-from services.auth_service import AuthService
-from models.user import User
+from backend.services.auth_service import AuthService
+from backend.models.user import User
+from backend.utils.security import require_csrf_token, sanitize_inputs, SecurityUtils
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -21,43 +22,70 @@ auth_bp = Blueprint('auth', __name__, url_prefix='/auth')
 def login():
     """Handle user login"""
     if current_user.is_authenticated:
-        return redirect(url_for('dashboard'))
-    
+        return redirect(url_for('dashboard.dashboard'))
+
     if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
+        # Log request details for debugging
+        logger.info(f"Login POST request received")
+        logger.info(f"Request headers: {dict(request.headers)}")
+        logger.info(f"Request form data keys: {list(request.form.keys())}")
+        logger.info(f"Request method: {request.method}")
+        logger.info(f"Request URL: {request.url}")
+
+        # Validate CSRF token BEFORE sanitization
+        csrf_token = request.form.get('csrf_token')
+        logger.info(f"CSRF token received: {csrf_token[:10] if csrf_token else 'None'}...")
+
+        if not SecurityUtils.validate_csrf_token(csrf_token):
+            logger.warning(f"CSRF validation failed. Token: {csrf_token[:10] if csrf_token else 'None'}...")
+            flash('Security validation failed. Please refresh the page and try again.', 'error')
+            return render_template('login.html'), 400
+
+        # Now sanitize the inputs (excluding password and csrf_token which are already validated)
+        username = SecurityUtils.sanitize_input(request.form.get('username', ''))
+        password = request.form.get('password', '')  # Don't sanitize password
         remember = request.form.get('remember', False)
-        
+
+        # Log login attempt details for debugging
+        logger.info(f"Login attempt - Username: {username}, Remember: {remember}")
+
         if not username or not password:
             flash('Please provide both username and password', 'error')
-            return render_template('login.html')
-        
+            return render_template('login.html'), 400
+
         try:
-            # Authenticate user
+            # Authenticate user with timeout
             user = AuthService.authenticate_user(username, password)
-            
+
             if user:
                 # Log in user
                 success = AuthService.login_user(user, remember=bool(remember))
-                
+
                 if success:
                     logger.info(f"User {username} logged in successfully")
                     flash(f'Welcome back, {user.username}!', 'success')
-                    
+
                     # Redirect to next page or dashboard
                     next_page = request.args.get('next')
-                    if next_page and next_page.startswith('/'):
+                    if next_page and next_page.startswith('/') and next_page != '/':
+                        logger.info(f"Redirecting to next page: {next_page}")
                         return redirect(next_page)
-                    return redirect(url_for('dashboard'))
+
+                    # Always redirect to dashboard for root path to prevent loops
+                    dashboard_url = url_for('dashboard.dashboard')
+                    logger.info(f"Redirecting to dashboard: {dashboard_url}")
+                    return redirect(dashboard_url)
                 else:
+                    logger.error(f"Login failed for user {username} - AuthService.login_user returned False")
                     flash('Login failed. Please try again.', 'error')
             else:
+                logger.warning(f"Invalid credentials for username: {username}")
                 flash('Invalid username or password', 'error')
-                
+
         except Exception as e:
             logger.error(f"Login error for user {username}: {e}")
             flash('An error occurred during login. Please try again.', 'error')
-    
+
     return render_template('login.html')
 
 
@@ -97,7 +125,7 @@ def profile():
     except Exception as e:
         logger.error(f"Error loading profile for user {current_user.username}: {e}")
         flash('Error loading profile information.', 'error')
-        return redirect(url_for('dashboard'))
+        return redirect(url_for('dashboard.dashboard'))
 
 
 @auth_bp.route('/change-password', methods=['GET', 'POST'])
@@ -207,6 +235,58 @@ def api_check_auth():
         }), 500
 
 
+@auth_bp.route('/api/test-auth')
+def api_test_auth():
+    """Test endpoint for authentication debugging"""
+    try:
+        return jsonify({
+            'success': True,
+            'message': 'Auth endpoint accessible',
+            'current_user_authenticated': current_user.is_authenticated if current_user else False,
+            'session_data': {
+                'session_id': session.get('session_id', 'N/A'),
+                'csrf_token': session.get('csrf_token', 'N/A'),
+                'user_id': session.get('user_id', 'N/A'),
+                'session_data': dict(session),
+                'cookies': dict(request.cookies),
+                'headers': dict(request.headers),
+                'user_agent': request.headers.get('User-Agent', 'Unknown'),
+                'origin': request.headers.get('Origin', 'Unknown'),
+                'referer': request.headers.get('Referer', 'Unknown')
+            }
+        })
+    except Exception as e:
+        logger.error(f"Error in test auth endpoint: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+
+@auth_bp.route('/api/session-test')
+def api_session_test():
+    """Test session management and cookies"""
+    try:
+        session_info = {
+            'session_id': session.get('_id', None),
+            'csrf_token': session.get('csrf_token', None),
+            'user_id': session.get('user_id', None),
+            'session_data': dict(session),
+            'cookies': dict(request.cookies),
+            'headers': dict(request.headers),
+            'user_agent': request.headers.get('User-Agent', 'Unknown'),
+            'origin': request.headers.get('Origin', 'Unknown'),
+            'referer': request.headers.get('Referer', 'Unknown')
+        }
+        
+        logger.info(f"Session test endpoint called: {session_info}")
+        return jsonify(session_info)
+        
+    except Exception as e:
+        logger.error(f"Session test error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # Error handlers for authentication routes
 @auth_bp.errorhandler(401)
 def unauthorized(error):
@@ -223,4 +303,4 @@ def forbidden(error):
     if request.is_xhr:
         return jsonify({'error': 'Insufficient permissions'}), 403
     flash('You do not have permission to access this page.', 'error')
-    return redirect(url_for('dashboard'))
+    return redirect(url_for('dashboard.dashboard'))

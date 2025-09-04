@@ -7,9 +7,9 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 import logging
 
-from services.product_service import ProductService
-from models.product import Product
-from models.stock import StockItem
+from backend.services.product_service import ProductService
+from backend.models.product import Product
+from backend.models.stock import StockItem
 
 # Configure logging
 logger = logging.getLogger(__name__)

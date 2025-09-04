@@ -20,6 +20,6 @@ REM Activate virtual environment and run desktop application
 call venv\Scripts\activate.bat
 echo Ensure PostgreSQL is running before launching
 echo Starting Desktop Application...
-python desktop\main.py
+python main.py
 
 pause

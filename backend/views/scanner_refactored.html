@@ -1,0 +1,463 @@
+{% extends "base_refactored.html" %}
+
+{% block title %}Barcode Scanner - Inventory Management{% endblock %}
+
+{% block styles %}
+<style>
+.scanner-container {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    min-height: calc(100vh - 70px);
+    padding: 20px;
+}
+
+.scanner-card {
+    background: white;
+    border-radius: 15px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+    overflow: hidden;
+}
+
+.scanner-header {
+    background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+    color: white;
+    padding: 20px;
+    text-align: center;
+}
+
+.scanner-body {
+    padding: 30px;
+}
+
+.scan-input-container {
+    position: relative;
+    margin-bottom: 30px;
+}
+
+.scan-input {
+    font-size: 24px;
+    padding: 20px;
+    border: 3px solid #e0e0e0;
+    border-radius: 10px;
+    width: 100%;
+    text-align: center;
+    transition: all 0.3s ease;
+}
+
+.scan-input:focus {
+    border-color: #4CAF50;
+    box-shadow: 0 0 20px rgba(76, 175, 80, 0.3);
+    outline: none;
+}
+
+.scan-input.scanning {
+    border-color: #dc3545;
+    background-color: #f8d7da;
+    animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+    0% { box-shadow: 0 0 20px rgba(220, 53, 69, 0.3); }
+    50% { box-shadow: 0 0 30px rgba(220, 53, 69, 0.6); }
+    100% { box-shadow: 0 0 20px rgba(220, 53, 69, 0.3); }
+}
+
+.location-info {
+    background: #f8f9fa;
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 20px;
+    border-left: 5px solid #4CAF50;
+}
+
+.stock-items-container {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.stock-item-card {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 15px;
+    margin-bottom: 10px;
+    transition: all 0.3s ease;
+}
+
+.stock-item-card:hover {
+    box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+    transform: translateY(-2px);
+}
+
+.action-buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-top: 15px;
+}
+
+.action-btn {
+    flex: 1;
+    min-width: 120px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="scanner-container">
+    <div class="container">
+        <div class="row justify-content-center">
+            <div class="col-lg-8">
+                <div class="scanner-card">
+                    <div class="scanner-header">
+                        <h2><i class="fas fa-qrcode me-2"></i>Barcode Scanner</h2>
+                        <p class="mb-0">Scan barcodes to manage inventory</p>
+                    </div>
+                    
+                    <div class="scanner-body">
+                        <!-- Scanner Input -->
+                        <div class="scan-input-container">
+                            <input type="text" id="scan-input" class="scan-input" 
+                                   placeholder="Scan barcode or enter manually..." 
+                                   autocomplete="off">
+                            <div class="text-center mt-2">
+                                <small class="text-muted">
+                                    <i class="fas fa-info-circle me-1"></i>
+                                    Press Enter after scanning or typing
+                                </small>
+                            </div>
+                        </div>
+                        
+                        <!-- Location Selection -->
+                        <div class="location-info">
+                            <h6><i class="fas fa-map-marker-alt me-2"></i>Current Location</h6>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <select id="warehouse-select" class="form-select form-select-sm">
+                                        <option value="">Select Warehouse</option>
+                                        {% for warehouse in warehouses %}
+                                        <option value="{{ warehouse.id }}">{{ warehouse.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-6">
+                                    <select id="bin-select" class="form-select form-select-sm">
+                                        <option value="">Select Bin (Optional)</option>
+                                        {% for bin in bins %}
+                                        <option value="{{ bin.id }}">{{ bin.name }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Scan Results -->
+                        <div id="scan-results" style="display: none;">
+                            <h6><i class="fas fa-search me-2"></i>Scan Results</h6>
+                            <div id="product-info" class="alert alert-info">
+                                <!-- Product information will be displayed here -->
+                            </div>
+                            
+                            <div id="stock-items" class="stock-items-container">
+                                <!-- Stock items will be displayed here -->
+                            </div>
+                        </div>
+                        
+                        <!-- Recent Scans -->
+                        <div id="recent-scans" class="mt-4">
+                            <h6><i class="fas fa-history me-2"></i>Recent Scans</h6>
+                            <div id="recent-scans-list" class="stock-items-container">
+                                <!-- Recent scans will be displayed here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Include components -->
+{% from 'components/modals.html' import confirmation_modal %}
+{{ confirmation_modal('updateStockModal', 'Update Stock', 
+   'Are you sure you want to update the stock quantity?', 
+   'Update', 'Cancel', 'btn-primary') }}
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Scanner functionality
+class BarcodeScanner {
+    constructor() {
+        this.scanInput = document.getElementById('scan-input');
+        this.warehouseSelect = document.getElementById('warehouse-select');
+        this.binSelect = document.getElementById('bin-select');
+        this.scanResults = document.getElementById('scan-results');
+        this.productInfo = document.getElementById('product-info');
+        this.stockItems = document.getElementById('stock-items');
+        this.recentScansList = document.getElementById('recent-scans-list');
+        
+        this.recentScans = [];
+        this.currentScan = null;
+        
+        this.initializeEventListeners();
+    }
+    
+    initializeEventListeners() {
+        // Handle scan input
+        this.scanInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                this.processScan();
+            }
+        });
+        
+        // Handle warehouse change
+        this.warehouseSelect.addEventListener('change', () => {
+            this.loadBins();
+        });
+        
+        // Focus scan input on page load
+        this.scanInput.focus();
+    }
+    
+    processScan() {
+        const barcode = this.scanInput.value.trim();
+        if (!barcode) {
+            Utils.showNotification('Please enter a barcode', 'warning');
+            return;
+        }
+        
+        this.scanInput.classList.add('scanning');
+        this.scanInput.disabled = true;
+        
+        // Simulate scanning delay
+        setTimeout(() => {
+            this.lookupBarcode(barcode);
+        }, 500);
+    }
+    
+    async lookupBarcode(barcode) {
+        try {
+            const response = await APIManager.get(`/api/products/barcode/${barcode}`);
+            if (response.success) {
+                this.displayProductInfo(response.product);
+                this.loadStockItems(response.product.id);
+                this.addToRecentScans(response.product);
+                this.scanResults.style.display = 'block';
+            } else {
+                Utils.showNotification('Product not found', 'warning');
+            }
+        } catch (error) {
+            Utils.showNotification('Failed to lookup barcode', 'danger');
+        } finally {
+            this.scanInput.classList.remove('scanning');
+            this.scanInput.disabled = false;
+            this.scanInput.value = '';
+            this.scanInput.focus();
+        }
+    }
+    
+    displayProductInfo(product) {
+        this.currentScan = product;
+        this.productInfo.innerHTML = `
+            <div class="row">
+                <div class="col-md-8">
+                    <h6 class="mb-2">${product.name}</h6>
+                    <p class="mb-1"><strong>SKU:</strong> ${product.sku}</p>
+                    <p class="mb-1"><strong>Category:</strong> ${product.category || 'N/A'}</p>
+                    <p class="mb-0"><strong>Price:</strong> ${Utils.formatCurrency(product.price)}</p>
+                </div>
+                <div class="col-md-4 text-end">
+                    <button class="btn btn-primary btn-sm" onclick="scanner.addStock()">
+                        <i class="fas fa-plus me-1"></i>Add Stock
+                    </button>
+                </div>
+            </div>
+        `;
+    }
+    
+    async loadStockItems(productId) {
+        try {
+            const warehouseId = this.warehouseSelect.value;
+            const binId = this.binSelect.value;
+            
+            let url = `/api/stock/product/${productId}`;
+            if (warehouseId) {
+                url += `?warehouse_id=${warehouseId}`;
+                if (binId) {
+                    url += `&bin_id=${binId}`;
+                }
+            }
+            
+            const response = await APIManager.get(url);
+            this.displayStockItems(response.stock_items || []);
+        } catch (error) {
+            Utils.showNotification('Failed to load stock items', 'danger');
+        }
+    }
+    
+    displayStockItems(stockItems) {
+        if (stockItems.length === 0) {
+            this.stockItems.innerHTML = `
+                <div class="alert alert-warning">
+                    <i class="fas fa-exclamation-triangle me-2"></i>
+                    No stock items found for this product
+                </div>
+            `;
+            return;
+        }
+        
+        this.stockItems.innerHTML = stockItems.map(item => `
+            <div class="stock-item-card">
+                <div class="row align-items-center">
+                    <div class="col-md-6">
+                        <h6 class="mb-1">${item.warehouse_name}</h6>
+                        <p class="mb-1 text-muted">${item.bin_name || 'No bin specified'}</p>
+                        <p class="mb-0"><strong>Quantity:</strong> ${item.quantity}</p>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="action-buttons">
+                            <button class="btn btn-outline-primary btn-sm action-btn" 
+                                    onclick="scanner.editStock('${item.id}')">
+                                <i class="fas fa-edit me-1"></i>Edit
+                            </button>
+                            <button class="btn btn-outline-success btn-sm action-btn" 
+                                    onclick="scanner.adjustStock('${item.id}', 'add')">
+                                <i class="fas fa-plus me-1"></i>Add
+                            </button>
+                            <button class="btn btn-outline-warning btn-sm action-btn" 
+                                    onclick="scanner.adjustStock('${item.id}', 'remove')">
+                                <i class="fas fa-minus me-1"></i>Remove
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    addToRecentScans(product) {
+        // Remove if already exists
+        this.recentScans = this.recentScans.filter(scan => scan.id !== product.id);
+        
+        // Add to beginning
+        this.recentScans.unshift({
+            ...product,
+            scanned_at: new Date()
+        });
+        
+        // Keep only last 10 scans
+        if (this.recentScans.length > 10) {
+            this.recentScans = this.recentScans.slice(0, 10);
+        }
+        
+        this.displayRecentScans();
+    }
+    
+    displayRecentScans() {
+        if (this.recentScans.length === 0) {
+            this.recentScansList.innerHTML = `
+                <div class="text-muted text-center">
+                    <i class="fas fa-info-circle me-2"></i>
+                    No recent scans
+                </div>
+            `;
+            return;
+        }
+        
+        this.recentScansList.innerHTML = this.recentScans.map(scan => `
+            <div class="stock-item-card">
+                <div class="row align-items-center">
+                    <div class="col-md-8">
+                        <h6 class="mb-1">${scan.name}</h6>
+                        <p class="mb-1 text-muted">${scan.sku}</p>
+                        <p class="mb-0 text-muted small">
+                            <i class="fas fa-clock me-1"></i>
+                            ${Utils.formatDateTime(scan.scanned_at)}
+                        </p>
+                    </div>
+                    <div class="col-md-4 text-end">
+                        <button class="btn btn-outline-primary btn-sm" 
+                                onclick="scanner.rescanProduct('${scan.id}')">
+                            <i class="fas fa-redo me-1"></i>Rescan
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    async loadBins() {
+        const warehouseId = this.warehouseSelect.value;
+        if (!warehouseId) {
+            this.binSelect.innerHTML = '<option value="">Select Bin (Optional)</option>';
+            return;
+        }
+        
+        try {
+            const response = await APIManager.get(`/api/warehouses/${warehouseId}/bins`);
+            this.binSelect.innerHTML = `
+                <option value="">Select Bin (Optional)</option>
+                ${response.bins.map(bin => `<option value="${bin.id}">${bin.name}</option>`).join('')}
+            `;
+        } catch (error) {
+            console.error('Failed to load bins:', error);
+        }
+    }
+    
+    addStock() {
+        if (!this.currentScan) {
+            Utils.showNotification('No product selected', 'warning');
+            return;
+        }
+        
+        // Redirect to add stock page or show modal
+        window.location.href = `/stock/add?product_id=${this.currentScan.id}`;
+    }
+    
+    editStock(stockId) {
+        // Redirect to edit stock page
+        window.location.href = `/stock/edit/${stockId}`;
+    }
+    
+    async adjustStock(stockId, action) {
+        const quantity = prompt(`Enter quantity to ${action}:`);
+        if (!quantity || isNaN(quantity)) {
+            return;
+        }
+        
+        try {
+            const response = await APIManager.post(`/api/stock/${stockId}/adjust`, {
+                action: action,
+                quantity: parseInt(quantity)
+            });
+            
+            Utils.showNotification(`Stock ${action}ed successfully`, 'success');
+            this.loadStockItems(this.currentScan.id);
+        } catch (error) {
+            Utils.showNotification(`Failed to ${action} stock`, 'danger');
+        }
+    }
+    
+    rescanProduct(productId) {
+        // Find product in recent scans
+        const product = this.recentScans.find(scan => scan.id === productId);
+        if (product) {
+            this.displayProductInfo(product);
+            this.loadStockItems(product.id);
+            this.scanResults.style.display = 'block';
+        }
+    }
+}
+
+// Initialize scanner when page loads
+let scanner;
+document.addEventListener('DOMContentLoaded', function() {
+    scanner = new BarcodeScanner();
+    
+    // Initialize warehouse and bin selects
+    if (scanner.warehouseSelect.value) {
+        scanner.loadBins();
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,141 @@
+{# Sidebar Component - Left sidebar navigation #}
+
+<nav class="col-md-3 col-lg-2 d-md-block sidebar collapse" id="sidebarMenu">
+    <div class="position-sticky pt-3">
+        <ul class="nav flex-column">
+            <!-- Dashboard -->
+            <li class="nav-item">
+                <a class="nav-link {{ 'active' if request.endpoint == 'dashboard' }}" 
+                   href="{{ url_for('dashboard.dashboard') }}">
+                    <i class="fas fa-tachometer-alt me-2"></i>
+                    Dashboard
+                </a>
+            </li>
+            
+            <!-- Inventory Management -->
+                         <li class="nav-item">
+                 <a class="nav-link {{ 'active' if request.endpoint.startswith('products.') }}" 
+                    href="{{ url_for('products.products_list') }}">
+                     <i class="fas fa-box me-2"></i>
+                     Products
+                 </a>
+             </li>
+             
+             <li class="nav-item">
+                 <a class="nav-link {{ 'active' if request.endpoint.startswith('stock.') }}" 
+                    href="{{ url_for('stock.stock_list') }}">
+                     <i class="fas fa-warehouse me-2"></i>
+                     Stock Management
+                 </a>
+             </li>
+             
+             <li class="nav-item">
+                 <a class="nav-link {{ 'active' if request.endpoint.startswith('warehouses.') }}" 
+                    href="{{ url_for('warehouses.warehouses_list') }}">
+                     <i class="fas fa-building me-2"></i>
+                     Warehouses
+                 </a>
+             </li>
+             
+             <!-- Operations -->
+             <li class="nav-item">
+                 <a class="nav-link {{ 'active' if request.endpoint.startswith('transactions.') }}" 
+                    href="{{ url_for('transactions.transactions_list') }}">
+                     <i class="fas fa-exchange-alt me-2"></i>
+                     Transactions
+                 </a>
+             </li>
+             
+             <li class="nav-item">
+                 <a class="nav-link {{ 'active' if request.endpoint.startswith('scanner.') }}" 
+                    href="{{ url_for('scanner.scanner_page') }}">
+                     <i class="fas fa-qrcode me-2"></i>
+                     Barcode Scanner
+                 </a>
+             </li>
+             
+             <li class="nav-item">
+                 <a class="nav-link {{ 'active' if request.endpoint.startswith('reports.') }}" 
+                    href="{{ url_for('dashboard.reports') }}">
+                     <i class="fas fa-chart-bar me-2"></i>
+                     Reports
+                 </a>
+             </li>
+            
+            <!-- Admin Section -->
+            {% if current_user.is_authenticated and current_user.role == 'admin' %}
+            <li class="nav-item">
+                <hr class="my-3">
+                <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+                    <span>Administration</span>
+                </h6>
+            </li>
+            
+                         <li class="nav-item">
+                 <a class="nav-link {{ 'active' if request.endpoint == 'dashboard.admin_schema' }}" 
+                    href="{{ url_for('dashboard.admin_schema') }}">
+                     <i class="fas fa-database me-2"></i>
+                     Database Schema
+                 </a>
+             </li>
+             
+             <li class="nav-item">
+                 <a class="nav-link {{ 'active' if request.endpoint == 'dashboard.suppliers' }}" 
+                    href="{{ url_for('dashboard.suppliers') }}">
+                     <i class="fas fa-truck me-2"></i>
+                     Suppliers
+                 </a>
+             </li>
+             
+             <li class="nav-item">
+                 <a class="nav-link {{ 'active' if request.endpoint == 'dashboard.warehouse_hierarchy' }}" 
+                    href="{{ url_for('dashboard.warehouse_hierarchy') }}">
+                     <i class="fas fa-sitemap me-2"></i>
+                     Warehouse Hierarchy
+                 </a>
+             </li>
+            {% endif %}
+        </ul>
+        
+        <!-- Quick Actions -->
+        {% if current_user.is_authenticated %}
+        <div class="mt-4 px-3">
+            <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+                <span>Quick Actions</span>
+            </h6>
+            
+            <div class="d-grid gap-2">
+                <button class="btn btn-sm btn-outline-primary" data-bs-toggle="modal" data-bs-target="#addProductModal">
+                    <i class="fas fa-plus me-1"></i>Add Product
+                </button>
+                <button class="btn btn-sm btn-outline-success" data-bs-toggle="modal" data-bs-target="#addStockModal">
+                    <i class="fas fa-plus me-1"></i>Add Stock
+                </button>
+                <button class="btn btn-sm btn-outline-info" data-bs-toggle="modal" data-bs-target="#addWarehouseModal">
+                    <i class="fas fa-plus me-1"></i>Add Warehouse
+                </button>
+            </div>
+        </div>
+        {% endif %}
+        
+        <!-- System Status -->
+        <div class="mt-4 px-3">
+            <h6 class="sidebar-heading d-flex justify-content-between align-items-center px-3 mt-4 mb-1 text-muted">
+                <span>System Status</span>
+            </h6>
+            
+            <div class="small text-muted">
+                <div class="d-flex justify-content-between">
+                    <span>Database:</span>
+                    <span class="text-success">
+                        <i class="fas fa-circle"></i> Online
+                    </span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span>Last Sync:</span>
+                    <span>{{ moment().fromNow() }}</span>
+                </div>
+            </div>
+        </div>
+    </div>
+</nav>

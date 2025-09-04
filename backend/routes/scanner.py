@@ -7,10 +7,10 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 import logging
 
-from services.stock_service import StockService
-from models.product import Product
-from models.warehouse import Bin, Location
-from models.stock import StockItem
+from backend.services.stock_service import StockService
+from backend.models.product import Product
+from backend.models.warehouse import Bin, Location
+from backend.models.stock import StockItem
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -494,4 +494,4 @@ def api_move_stock():
 
 
 # Import required models
-from models.warehouse import Warehouse
+        from backend.models.warehouse import Warehouse

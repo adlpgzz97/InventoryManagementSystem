@@ -58,7 +58,11 @@ A comprehensive web-based inventory management system built with Flask, PostgreS
 
 4. **Set up PostgreSQL database**
    - Create a new PostgreSQL database
-   - Update database connection in `backend/app.py` if needed
+   - Run the configuration setup script:
+   ```bash
+   python setup_environment.py
+   ```
+   This will create a `.env` file with your database credentials.
 
 5. **Initialize the database**
    ```bash
@@ -68,11 +72,16 @@ A comprehensive web-based inventory management system built with Flask, PostgreS
 
 6. **Run the application**
    ```bash
+   # Option 1: Desktop application
+   python main.py
+   
+   # Option 2: Web application only
    python backend/app.py
    ```
 
 7. **Access the application**
-   - Open your browser and go to `http://127.0.0.1:5001`
+   - Desktop app will open automatically
+   - Or open your browser and go to `http://127.0.0.1:5001`
    - Login with default credentials:
      - **Admin**: admin / admin123
      - **Manager**: manager / manager123

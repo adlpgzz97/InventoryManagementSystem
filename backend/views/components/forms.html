@@ -1,0 +1,90 @@
+{# Forms Component - Common form elements #}
+
+{# Search Input Component #}
+{% macro search_input(id, placeholder="Search...", classes="", scan_button=true) %}
+<div class="input-group input-group-sm">
+    <input type="text" id="{{ id }}" class="form-control {{ classes }}" 
+           placeholder="{{ placeholder }}">
+    {% if scan_button %}
+    <button class="btn btn-outline-secondary" type="button" id="scan-search-{{ id }}" title="Scan to Search">
+        <i class="fas fa-qrcode"></i>
+    </button>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{# Filter Select Component #}
+{% macro filter_select(id, options, placeholder="All", classes="") %}
+<select id="{{ id }}" class="form-select form-select-sm {{ classes }}">
+    <option value="">{{ placeholder }}</option>
+    {% for value, label in options.items() %}
+    <option value="{{ value }}">{{ label }}</option>
+    {% endfor %}
+</select>
+{% endmacro %}
+
+{# Action Button Component #}
+{% macro action_button(id, text, icon, type="button", classes="btn-primary", size="sm", disabled=false) %}
+<button type="{{ type }}" class="btn btn-{{ classes }} btn-{{ size }} {{ 'disabled' if disabled }}" 
+        id="{{ id }}" {{ 'disabled' if disabled }}>
+    <i class="fas fa-{{ icon }} me-1"></i>{{ text }}
+</button>
+{% endmacro %}
+
+{# Modal Form Component #}
+{% macro modal_form(id, title, submit_text="Save", size="lg") %}
+<div class="modal fade" id="{{ id }}" tabindex="-1" aria-labelledby="{{ id }}-label" aria-hidden="true">
+    <div class="modal-dialog modal-{{ size }}">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="{{ id }}-label">{{ title }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="{{ id }}-form">
+                <div class="modal-body">
+                    {% block modal_body %}{% endblock %}
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">{{ submit_text }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+{# Form Field Component #}
+{% macro form_field(label, input_id, input_type="text", required=false, classes="", placeholder="", value="") %}
+<div class="mb-3">
+    <label for="{{ input_id }}" class="form-label">{{ label }}{{ '*' if required }}</label>
+    <input type="{{ input_type }}" class="form-control {{ classes }}" 
+           id="{{ input_id }}" name="{{ input_id }}" 
+           placeholder="{{ placeholder }}" value="{{ value }}"
+           {{ 'required' if required }}>
+</div>
+{% endmacro %}
+
+{# Form Textarea Component #}
+{% macro form_textarea(label, textarea_id, required=false, classes="", placeholder="", rows=3) %}
+<div class="mb-3">
+    <label for="{{ textarea_id }}" class="form-label">{{ label }}{{ '*' if required }}</label>
+    <textarea class="form-control {{ classes }}" id="{{ textarea_id }}" name="{{ textarea_id }}" 
+              placeholder="{{ placeholder }}" rows="{{ rows }}"
+              {{ 'required' if required }}></textarea>
+</div>
+{% endmacro %}
+
+{# Form Select Component #}
+{% macro form_select(label, select_id, options, required=false, classes="", placeholder="Select...") %}
+<div class="mb-3">
+    <label for="{{ select_id }}" class="form-label">{{ label }}{{ '*' if required }}</label>
+    <select class="form-select {{ classes }}" id="{{ select_id }}" name="{{ select_id }}"
+            {{ 'required' if required }}>
+        <option value="">{{ placeholder }}</option>
+        {% for value, label in options.items() %}
+        <option value="{{ value }}">{{ label }}</option>
+        {% endfor %}
+    </select>
+</div>
+{% endmacro %}

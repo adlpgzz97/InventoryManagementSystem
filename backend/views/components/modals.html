@@ -1,0 +1,181 @@
+{# Modals Component - Common modal patterns #}
+
+{# Product Modal Component #}
+{% macro product_modal(modal_id, title, submit_text="Save") %}
+<div class="modal fade" id="{{ modal_id }}" tabindex="-1" aria-labelledby="{{ modal_id }}-label" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="{{ modal_id }}-label">{{ title }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="{{ modal_id }}-form">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            {{ form_field("SKU", "sku", "text", true, "", "Enter product SKU") }}
+                            {{ form_field("Name", "name", "text", true, "", "Enter product name") }}
+                            {{ form_field("Category", "category", "text", false, "", "Enter product category") }}
+                            {{ form_field("Brand", "brand", "text", false, "", "Enter product brand") }}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form_field("Price", "price", "number", false, "", "0.00", "0.00") }}
+                            {{ form_field("Cost", "cost", "number", false, "", "0.00", "0.00") }}
+                            {{ form_field("Barcode", "barcode", "text", false, "", "Enter barcode") }}
+                            {{ form_field("Weight (kg)", "weight", "number", false, "", "0.00", "0.00") }}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-12">
+                            {{ form_textarea("Description", "description", false, "", "Enter product description", 3) }}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            {{ form_field("Min Stock Level", "min_stock", "number", false, "", "0", "0") }}
+                            {{ form_field("Max Stock Level", "max_stock", "number", false, "", "0", "0") }}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form_field("Unit", "unit", "text", false, "", "pcs, kg, etc.") }}
+                            {{ form_field("Location", "location", "text", false, "", "Storage location") }}
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">{{ submit_text }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+{# Stock Modal Component #}
+{% macro stock_modal(modal_id, title, submit_text="Save") %}
+<div class="modal fade" id="{{ modal_id }}" tabindex="-1" aria-labelledby="{{ modal_id }}-label" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="{{ modal_id }}-label">{{ title }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="{{ modal_id }}-form">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            {{ form_select("Product", "product_id", {}, true, "", "Select product") }}
+                            {{ form_select("Warehouse", "warehouse_id", {}, true, "", "Select warehouse") }}
+                            {{ form_select("Bin", "bin_id", {}, false, "", "Select bin") }}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form_field("Quantity", "quantity", "number", true, "", "0", "0") }}
+                            {{ form_field("Batch Number", "batch_number", "text", false, "", "Enter batch number") }}
+                            {{ form_field("Expiry Date", "expiry_date", "date", false) }}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-12">
+                            {{ form_textarea("Notes", "notes", false, "", "Enter any additional notes", 3) }}
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">{{ submit_text }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+{# Warehouse Modal Component #}
+{% macro warehouse_modal(modal_id, title, submit_text="Save") %}
+<div class="modal fade" id="{{ modal_id }}" tabindex="-1" aria-labelledby="{{ modal_id }}-label" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="{{ modal_id }}-label">{{ title }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <form id="{{ modal_id }}-form">
+                <div class="modal-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            {{ form_field("Name", "name", "text", true, "", "Enter warehouse name") }}
+                            {{ form_field("Code", "code", "text", true, "", "Enter warehouse code") }}
+                            {{ form_field("Type", "type", "text", false, "", "Distribution, Storage, etc.") }}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form_field("Capacity", "capacity", "number", false, "", "0", "0") }}
+                            {{ form_field("Temperature", "temperature", "number", false, "", "Temperature in °C") }}
+                            {{ form_field("Humidity", "humidity", "number", false, "", "Humidity %") }}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-12">
+                            {{ form_textarea("Address", "address", false, "", "Enter warehouse address", 3) }}
+                        </div>
+                    </div>
+                    <div class="row">
+                        <div class="col-md-6">
+                            {{ form_field("Contact Person", "contact_person", "text", false, "", "Enter contact person name") }}
+                            {{ form_field("Phone", "phone", "tel", false, "", "Enter contact phone") }}
+                        </div>
+                        <div class="col-md-6">
+                            {{ form_field("Email", "email", "email", false, "", "Enter contact email") }}
+                            {{ form_field("Status", "status", "select", false, "", "Select status", {"active": "Active", "inactive": "Inactive"}) }}
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">{{ submit_text }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+{# Confirmation Modal Component #}
+{% macro confirmation_modal(modal_id, title, message, confirm_text="Confirm", cancel_text="Cancel", confirm_class="btn-danger") %}
+<div class="modal fade" id="{{ modal_id }}" tabindex="-1" aria-labelledby="{{ modal_id }}-label" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="{{ modal_id }}-label">{{ title }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p>{{ message }}</p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">{{ cancel_text }}</button>
+                <button type="button" class="btn {{ confirm_class }}" id="{{ modal_id }}-confirm">{{ confirm_text }}</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endmacro %}
+
+{# Details Modal Component #}
+{% macro details_modal(modal_id, title, size="lg") %}
+<div class="modal fade" id="{{ modal_id }}" tabindex="-1" aria-labelledby="{{ modal_id }}-label" aria-hidden="true">
+    <div class="modal-dialog modal-{{ size }}">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="{{ modal_id }}-label">{{ title }}</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                {% block modal_content %}{% endblock %}
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endmacro %}

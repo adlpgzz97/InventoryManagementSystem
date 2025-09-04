@@ -7,10 +7,10 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 import logging
 
-from services.stock_service import StockService
-from models.stock import StockItem, StockTransaction
-from models.product import Product
-from models.warehouse import Bin
+from backend.services.stock_service import StockService
+from backend.models.stock import StockItem, StockTransaction
+from backend.models.product import Product
+from backend.models.warehouse import Bin
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ def stock_list():
         # Get warehouse name for the filter if warehouse_id is provided
         selected_warehouse_name = None
         if warehouse_id:
-            from models.warehouse import Warehouse
+            from backend.models.warehouse import Warehouse
             warehouse = Warehouse.get_by_id(warehouse_id)
             if warehouse:
                 selected_warehouse_name = warehouse.name

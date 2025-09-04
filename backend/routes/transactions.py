@@ -8,11 +8,11 @@ from flask_login import login_required, current_user
 import logging
 from datetime import datetime
 
-from models.stock import StockTransaction, StockItem
-from models.product import Product
-from models.warehouse import Warehouse, Location, Bin
-from models.user import User
-from utils.database import execute_query
+from backend.models.stock import StockTransaction, StockItem
+from backend.models.product import Product
+from backend.models.warehouse import Warehouse, Location, Bin
+from backend.models.user import User
+from backend.utils.database import execute_query
 
 # Configure logging
 logger = logging.getLogger(__name__)

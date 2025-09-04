@@ -7,7 +7,7 @@ from typing import Optional, Dict, Any
 import logging
 from flask_login import login_user, logout_user
 
-from models.user import User
+from backend.models.user import User
 
 # Configure logging
 logger = logging.getLogger(__name__)

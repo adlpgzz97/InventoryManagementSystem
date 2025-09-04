@@ -3,16 +3,17 @@ Dashboard Routes for Inventory Management System
 Handles main dashboard, overview, and home page routes
 """
 
-from flask import Blueprint, render_template, jsonify
+from flask import Blueprint, render_template, jsonify, request
 from flask_login import login_required, current_user
 import logging
 from datetime import datetime, timedelta
 
-from services.stock_service import StockService
-from services.product_service import ProductService
-from models.product import Product
-from models.stock import StockItem
-from models.warehouse import Warehouse
+from backend.services.dashboard_service import DashboardService
+from backend.services.stock_service import StockService
+from backend.services.product_service import ProductService
+from backend.models.product import Product
+from backend.models.stock import StockItem
+from backend.models.warehouse import Warehouse
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -26,28 +27,29 @@ dashboard_bp = Blueprint('dashboard', __name__)
 @login_required
 def dashboard():
     """Main dashboard page"""
+    logger.info(f"Dashboard route accessed by user: {current_user.username}")
+    
     try:
-        # Get comprehensive dashboard data
-        stats = get_dashboard_stats()
-        alerts = get_dashboard_alerts()
-        stock_distribution = get_stock_distribution()
-        warehouse_distribution = get_warehouse_distribution()
-        batch_analytics = get_batch_analytics()
-        detailed_stock_report = get_detailed_stock_report()
+        # Use dashboard service to get data
+        dashboard_service = DashboardService()
+        dashboard_data = dashboard_service.get_user_dashboard_data(current_user.id)
         
-        return render_template('dashboard.html',
-                             stats=stats,
-                             alerts=alerts,
-                             stock_distribution=stock_distribution,
-                             warehouse_distribution=warehouse_distribution,
-                             batch_analytics=batch_analytics,
-                             detailed_stock_report=detailed_stock_report)
+        logger.info("Dashboard data loaded successfully via service, rendering template")
+        return render_template('dashboard.html', **dashboard_data)
                              
     except Exception as e:
         logger.error(f"Error loading dashboard: {e}")
+        
+        # Return a simplified dashboard with error message
         return render_template('dashboard.html',
                              stats={},
-                             alerts=[],
+                             alerts=[{
+                                 'type': 'danger',
+                                 'title': 'Dashboard Error',
+                                 'message': f'Failed to load dashboard data: {str(e)}',
+                                 'count': 1,
+                                 'link': None
+                             }],
                              stock_distribution={},
                              warehouse_distribution=[],
                              batch_analytics=None,
@@ -60,11 +62,13 @@ def dashboard():
 def api_dashboard_stats():
     """API endpoint for dashboard statistics"""
     try:
-        stats = get_dashboard_stats()
-        return jsonify({
-            'success': True,
-            'stats': stats
-        })
+        dashboard_service = DashboardService()
+        dashboard_data = dashboard_service.get_dashboard_data()
+        return jsonify(dashboard_service.create_response(
+            success=True,
+            data=dashboard_data['stats'],
+            message="Dashboard statistics loaded successfully"
+        ))
     except Exception as e:
         logger.error(f"Error getting dashboard stats: {e}")
         return jsonify({
@@ -78,11 +82,13 @@ def api_dashboard_stats():
 def api_dashboard_alerts():
     """API endpoint for dashboard alerts"""
     try:
-        alerts = get_dashboard_alerts()
-        return jsonify({
-            'success': True,
-            'alerts': alerts
-        })
+        dashboard_service = DashboardService()
+        dashboard_data = dashboard_service.get_dashboard_data()
+        return jsonify(dashboard_service.create_response(
+            success=True,
+            data=dashboard_data['alerts'],
+            message="Dashboard alerts loaded successfully"
+        ))
     except Exception as e:
         logger.error(f"Error getting dashboard alerts: {e}")
         return jsonify({
@@ -96,11 +102,13 @@ def api_dashboard_alerts():
 def api_recent_activities():
     """API endpoint for recent activities"""
     try:
-        activities = get_recent_activities()
-        return jsonify({
-            'success': True,
-            'activities': activities
-        })
+        dashboard_service = DashboardService()
+        dashboard_data = dashboard_service.get_dashboard_data()
+        return jsonify(dashboard_service.create_response(
+            success=True,
+            data=dashboard_data['recent_activity'],
+            message="Recent activities loaded successfully"
+        ))
     except Exception as e:
         logger.error(f"Error getting recent activities: {e}")
         return jsonify({

@@ -1,402 +1,426 @@
 """
 Product Service for Inventory Management System
-Handles product-related business logic and operations
+Handles all business logic for product operations
 """
 
-from typing import Optional, Dict, Any, List
 import logging
-from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional
+from datetime import datetime
 
-from models.product import Product
-from models.stock import StockItem
-from utils.database import execute_query
-
-# Configure logging
-logger = logging.getLogger(__name__)
+from .base_service import BaseService, ServiceError, ValidationError, NotFoundError
+from backend.models.product import Product
+from backend.repositories.product_repository import ProductRepository
 
 
-class ProductService:
-    """Service class for product management operations"""
+class ProductService(BaseService):
+    """Service for product business logic"""
     
-    @staticmethod
-    def create_product(name: str, description: str = None, sku: str = None,
-                       barcode: str = None, dimensions: str = None, weight: float = None,
-                       picture_url: str = None, batch_tracked: bool = False) -> Optional[Product]:
-        """Create a new product with validation"""
+    def __init__(self):
+        super().__init__()
+        self.product_repository = ProductRepository()
+    
+    def get_service_name(self) -> str:
+        return "ProductService"
+    
+    def get_product_by_id(self, product_id: str) -> Optional[Product]:
+        """Get product by ID"""
         try:
-            # Validate required fields
-            if not name or not name.strip():
-                raise ValueError("Product name is required")
+            self.log_operation("get_product_by_id", {"product_id": product_id})
             
-            # Check for duplicate SKU if provided
-            if sku:
-                existing_product = Product.search(sku)
-                if existing_product:
-                    raise ValueError(f"Product with SKU '{sku}' already exists")
+            if not product_id:
+                raise ValidationError("Product ID is required")
             
-            # Check for duplicate barcode if provided
-            if barcode:
-                existing_product = Product.get_by_barcode(barcode)
-                if existing_product:
-                    raise ValueError(f"Product with barcode '{barcode}' already exists")
-            
-            # Create the product
-            product = Product.create(
-                name=name.strip(),
-                description=description.strip() if description else None,
-                sku=sku.strip() if sku else None,
-                barcode=barcode.strip() if barcode else None,
-                dimensions=dimensions.strip() if dimensions else None,
-                weight=weight,
-                picture_url=picture_url.strip() if picture_url else None,
-                batch_tracked=batch_tracked
-            )
+            product = self.product_repository.get_by_id(product_id)
             
             if product:
-                logger.info(f"Product '{name}' created successfully with ID {product.id}")
+                self.log_operation("get_product_by_id_success", {"product_id": product_id})
                 return product
             else:
-                logger.error(f"Failed to create product '{name}'")
+                self.log_operation("get_product_by_id_not_found", {"product_id": product_id})
                 return None
                 
         except Exception as e:
-            logger.error(f"Error creating product '{name}': {e}")
-            raise e
+            self.log_error("get_product_by_id", e, {"product_id": product_id})
+            if isinstance(e, ValidationError):
+                raise
+            raise ServiceError(f"Failed to get product by ID: {str(e)}")
     
-    @staticmethod
-    def update_product(product_id: str, **kwargs) -> bool:
-        """Update product with validation"""
+    def get_product_by_barcode(self, barcode: str) -> Optional[Product]:
+        """Get product by barcode"""
         try:
-            product = Product.get_by_id(product_id)
-            if not product:
-                raise ValueError("Product not found")
+            self.log_operation("get_product_by_barcode", {"barcode": barcode})
             
-            # Validate SKU uniqueness if being updated
-            if 'sku' in kwargs and kwargs['sku']:
-                existing_products = Product.search(kwargs['sku'])
-                for existing in existing_products:
-                    if existing.id != product_id:
-                        raise ValueError(f"Product with SKU '{kwargs['sku']}' already exists")
+            if not barcode:
+                raise ValidationError("Barcode is required")
             
-            # Validate barcode uniqueness if being updated
-            if 'barcode' in kwargs and kwargs['barcode']:
-                existing_product = Product.get_by_barcode(kwargs['barcode'])
-                if existing_product and existing_product.id != product_id:
-                    raise ValueError(f"Product with barcode '{kwargs['barcode']}' already exists")
+            product = self.product_repository.get_by_barcode(barcode)
             
-            # Clean up string fields
-            for key in ['name', 'description', 'sku', 'barcode', 'dimensions', 'picture_url']:
-                if key in kwargs and kwargs[key]:
-                    kwargs[key] = kwargs[key].strip()
-            
-            # Update the product
-            success = product.update(**kwargs)
-            
-            if success:
-                logger.info(f"Product {product_id} updated successfully")
-                return True
+            if product:
+                self.log_operation("get_product_by_barcode_success", {"barcode": barcode})
+                return product
             else:
-                logger.error(f"Failed to update product {product_id}")
-                return False
+                self.log_operation("get_product_by_barcode_not_found", {"barcode": barcode})
+                return None
                 
         except Exception as e:
-            logger.error(f"Error updating product {product_id}: {e}")
-            raise e
+            self.log_error("get_product_by_barcode", e, {"barcode": barcode})
+            if isinstance(e, ValidationError):
+                raise
+            raise ServiceError(f"Failed to get product by barcode: {str(e)}")
     
-    @staticmethod
-    def delete_product(product_id: str) -> bool:
-        """Delete product with validation"""
+    def get_all_products(self) -> List[Product]:
+        """Get all products"""
         try:
-            product = Product.get_by_id(product_id)
-            if not product:
-                raise ValueError("Product not found")
+            self.log_operation("get_all_products")
             
-            # Check if product has stock
-            stock_items = StockItem.get_by_product(product_id)
-            if stock_items:
-                total_stock = sum(item.on_hand for item in stock_items)
-                if total_stock > 0:
-                    raise ValueError(f"Cannot delete product with {total_stock} units in stock")
+            products = self.product_repository.get_all()
             
-            # Delete the product
-            success = product.delete()
-            
-            if success:
-                logger.info(f"Product {product_id} deleted successfully")
-                return True
-            else:
-                logger.error(f"Failed to delete product {product_id}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"Error deleting product {product_id}: {e}")
-            raise e
-    
-    @staticmethod
-    def get_product_details(product_id: str) -> Dict[str, Any]:
-        """Get comprehensive product details including stock information"""
-        logger.info(f"ProductService.get_product_details called with product_id: {product_id}")
-        logger.info(f"Product ID type: {type(product_id)}")
-        try:
-            product = Product.get_by_id(product_id)
-            if not product:
-                return {'error': 'Product not found'}
-            
-            # Get stock information
-            stock_items = StockItem.get_by_product(product_id)
-            stock_levels = product.get_stock_levels()
-            
-            # Get stock by location with full hierarchy
-            stock_locations = []
-            for item in stock_items:
-                from models.warehouse import Bin, Location, Warehouse
-                bin_obj = Bin.get_by_id(item.bin_id)
-                if bin_obj:
-                    location_obj = None
-                    warehouse_obj = None
-                    
-                    if bin_obj.location_id:
-                        location_obj = Location.get_by_id(bin_obj.location_id)
-                        if location_obj and location_obj.warehouse_id:
-                            warehouse_obj = Warehouse.get_by_id(location_obj.warehouse_id)
-                    
-                    stock_locations.append({
-                        'warehouse_name': warehouse_obj.name if warehouse_obj else 'Unknown',
-                        'warehouse_address': warehouse_obj.address if warehouse_obj else 'Unknown',
-                        'aisle': location_obj.full_code if location_obj else 'Unknown',
-                        'bin': bin_obj.code,
-                        'on_hand': item.on_hand,
-                        'qty_reserved': item.qty_reserved,
-                        'available': item.available_stock,
-                        'batch_id': item.batch_id,
-                        'expiry_date': item.expiry_date.isoformat() if item.expiry_date else None,
-                        'created_at': item.created_at.isoformat() if item.created_at else None
-                    })
-            
-            # Get recent transactions
-            transaction_history = []
-            for item in stock_items[:5]:  # Limit to 5 most recent items
-                from models.stock import StockTransaction
-                transactions = StockTransaction.get_by_stock_item(item.id, limit=20)
-                for txn in transactions:
-                    transaction_history.append({
-                        'transaction_type': txn.transaction_type,
-                        'quantity_change': txn.quantity_change,
-                        'quantity_before': txn.quantity_before,
-                        'quantity_after': txn.quantity_after,
-                        'created_at': txn.created_at.isoformat() if txn.created_at else None,
-                        'notes': txn.notes,
-                        'user_name': 'System'  # TODO: Get actual user name
-                    })
-            
-            # Sort transactions by date (most recent first)
-            transaction_history.sort(key=lambda x: x['created_at'], reverse=True)
-            transaction_history = transaction_history[:100]  # Limit to 100 transactions
-            
-            # Calculate forecasting data (simplified)
-            current_stock = stock_levels['total_available']
-            avg_daily_usage = 0  # TODO: Calculate from transaction history
-            lead_time_days = 7  # Default
-            safety_stock = max(5, int(avg_daily_usage * lead_time_days * 0.5))
-            reorder_point = safety_stock + int(avg_daily_usage * lead_time_days)
-            days_of_stock = current_stock / avg_daily_usage if avg_daily_usage > 0 else float('inf')
-            
-            # Determine stock status
-            stock_status = 'low' if current_stock <= reorder_point else 'ok'
-            
-            # Get warehouse distribution
-            warehouse_distribution = {}
-            for location in stock_locations:
-                warehouse_name = location['warehouse_name']
-                if warehouse_name not in warehouse_distribution:
-                    warehouse_distribution[warehouse_name] = 0
-                warehouse_distribution[warehouse_name] += location['available']
-            
-            warehouse_distribution_list = [
-                {'warehouse_name': name, 'total_available': qty}
-                for name, qty in warehouse_distribution.items()
-            ]
-            
-            # Generate stock trends (simplified - last 30 days)
-            stock_trends = []
-            for i in range(30):
-                # TODO: Calculate actual trends from transaction history
-                stock_trends.append({
-                    'date': (datetime.now() - timedelta(days=29-i)).isoformat(),
-                    'received': 0,
-                    'shipped': 0,
-                    'adjusted': 0
-                })
-            
-            # Get expiring items
-            expiring_alerts = []
-            for item in stock_items:
-                if item.expiry_date and item.days_until_expiry() is not None:
-                    days_until_expiry = item.days_until_expiry()
-                    if days_until_expiry <= 30:  # Alert for items expiring within 30 days
-                        expiring_alerts.append({
-                            'batch_id': item.batch_id,
-                            'expiry_date': item.expiry_date.isoformat(),
-                            'on_hand': item.on_hand,
-                            'warehouse_name': 'Unknown',  # TODO: Get from location
-                            'full_code': 'Unknown'  # TODO: Get from location
-                        })
-            
-            return {
-                'product': product.to_dict(),
-                'summary': {
-                    'total_locations': len(stock_locations),
-                    'total_transactions': len(transaction_history)
-                },
-                'stock_locations': stock_locations,
-                'transaction_history': transaction_history,
-                'forecasting': {
-                    'current_stock': current_stock,
-                    'avg_daily_usage': avg_daily_usage,
-                    'usage_std_dev': 0,  # TODO: Calculate
-                    'max_daily_usage': 0,  # TODO: Calculate
-                    'lead_time_days': lead_time_days,
-                    'safety_stock': safety_stock,
-                    'reorder_point': reorder_point,
-                    'days_of_stock': days_of_stock,
-                    'stock_status': stock_status,
-                    'calculation_mode': 'Automatic'
-                },
-                'warehouse_distribution': warehouse_distribution_list,
-                'stock_trends': stock_trends,
-                'expiry_alerts': expiring_alerts
-            }
-            
-        except Exception as e:
-            logger.error(f"Error getting product details for {product_id}: {e}")
-            return {'error': str(e)}
-    
-    @staticmethod
-    def search_products(search_term: str, batch_tracked: bool = None) -> List[Product]:
-        """Search products with filters"""
-        try:
-            products = Product.search(search_term)
-            
-            # Apply filters
-            if batch_tracked is not None:
-                products = [p for p in products if p.batch_tracked == batch_tracked]
-            
+            self.log_operation("get_all_products_success", {"count": len(products)})
             return products
-            
+                
         except Exception as e:
-            logger.error(f"Error searching products: {e}")
-            return []
+            self.log_error("get_all_products", e)
+            raise ServiceError(f"Failed to get all products: {str(e)}")
     
-    @staticmethod
-    def get_low_stock_products() -> List[Dict[str, Any]]:
-        """Get products with low stock levels"""
+    def search_products(self, search_term: str, limit: Optional[int] = None) -> List[Product]:
+        """Search products by name, description, or SKU"""
         try:
-            products = Product.get_all()
-            low_stock_products = []
+            self.log_operation("search_products", {"search_term": search_term, "limit": limit})
             
-            for product in products:
-                if product.is_low_stock():
-                    stock_levels = product.get_stock_levels()
-                    low_stock_products.append({
-                        'product': product.to_dict(),
-                        'stock_levels': stock_levels,
-                        'shortfall': 5 - stock_levels['total_available']  # Default threshold is 5
-                    })
+            if not search_term:
+                return self.get_all_products()
             
-            # Sort by shortfall (highest first)
-            low_stock_products.sort(key=lambda x: x['shortfall'], reverse=True)
+            products = self.product_repository.search_products(search_term, limit)
+            
+            self.log_operation("search_products_success", {"search_term": search_term, "count": len(products)})
+            return products
+                
+        except Exception as e:
+            self.log_error("search_products", e, {"search_term": search_term})
+            raise ServiceError(f"Failed to search products: {str(e)}")
+    
+    def create_product(self, product_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create a new product"""
+        try:
+            self.log_operation("create_product", product_data)
+            
+            # Validate required fields
+            required_fields = ['name', 'sku']
+            self.validate_required_fields(product_data, required_fields)
+            
+            # Validate SKU uniqueness
+            if self.product_repository.get_by_sku(product_data['sku']):
+                raise ValidationError(f"Product with SKU '{product_data['sku']}' already exists")
+            
+            # Validate barcode uniqueness if provided
+            if product_data.get('barcode') and self.product_repository.get_by_barcode(product_data['barcode']):
+                raise ValidationError(f"Product with barcode '{product_data['barcode']}' already exists")
+            
+            # Sanitize input
+            sanitized_data = self.sanitize_input(product_data)
+            
+            # Create product
+            product = self.product_repository.create(sanitized_data)
+            
+            self.log_operation("create_product_success", {"product_id": product.id})
+            
+            return self.create_response(
+                success=True,
+                data=product.to_dict(),
+                message="Product created successfully"
+            )
+                
+        except Exception as e:
+            self.log_error("create_product", e, product_data)
+            if isinstance(e, ValidationError):
+                return self.create_response(success=False, error=str(e))
+            raise ServiceError(f"Failed to create product: {str(e)}")
+    
+    def update_product(self, product_id: str, product_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Update an existing product"""
+        try:
+            self.log_operation("update_product", {"product_id": product_id, "data": product_data})
+            
+            if not product_id:
+                raise ValidationError("Product ID is required")
+            
+            # Check if product exists
+            existing_product = self.product_repository.get_by_id(product_id)
+            if not existing_product:
+                raise NotFoundError(f"Product with ID '{product_id}' not found")
+            
+            # Validate SKU uniqueness if changing
+            if 'sku' in product_data and product_data['sku'] != existing_product.sku:
+                if self.product_repository.get_by_sku(product_data['sku']):
+                    raise ValidationError(f"Product with SKU '{product_data['sku']}' already exists")
+            
+            # Validate barcode uniqueness if changing
+            if 'barcode' in product_data and product_data['barcode'] != existing_product.barcode:
+                if product_data['barcode'] and self.product_repository.get_by_barcode(product_data['barcode']):
+                    raise ValidationError(f"Product with barcode '{product_data['barcode']}' already exists")
+            
+            # Sanitize input
+            sanitized_data = self.sanitize_input(product_data)
+            
+            # Update product
+            updated_product = self.product_repository.update(product_id, sanitized_data)
+            
+            if updated_product:
+                self.log_operation("update_product_success", {"product_id": product_id})
+                
+                return self.create_response(
+                    success=True,
+                    data=updated_product.to_dict(),
+                    message="Product updated successfully"
+                )
+            else:
+                raise ServiceError("Failed to update product")
+                
+        except Exception as e:
+            self.log_error("update_product", e, {"product_id": product_id, "data": product_data})
+            if isinstance(e, (ValidationError, NotFoundError)):
+                return self.create_response(success=False, error=str(e))
+            raise ServiceError(f"Failed to update product: {str(e)}")
+    
+    def delete_product(self, product_id: str) -> Dict[str, Any]:
+        """Delete a product"""
+        try:
+            self.log_operation("delete_product", {"product_id": product_id})
+            
+            if not product_id:
+                raise ValidationError("Product ID is required")
+            
+            # Check if product exists
+            existing_product = self.product_repository.get_by_id(product_id)
+            if not existing_product:
+                raise NotFoundError(f"Product with ID '{product_id}' not found")
+            
+            # Delete product
+            success = self.product_repository.delete(product_id)
+            
+            if success:
+                self.log_operation("delete_product_success", {"product_id": product_id})
+                
+                return self.create_response(
+                    success=True,
+                    message="Product deleted successfully"
+                )
+            else:
+                raise ServiceError("Failed to delete product")
+                
+        except Exception as e:
+            self.log_error("delete_product", e, {"product_id": product_id})
+            if isinstance(e, (ValidationError, NotFoundError)):
+                return self.create_response(success=False, error=str(e))
+            raise ServiceError(f"Failed to delete product: {str(e)}")
+    
+    def get_products_with_stock(self) -> List[Dict[str, Any]]:
+        """Get products with their current stock levels"""
+        try:
+            self.log_operation("get_products_with_stock")
+            
+            products_with_stock = self.product_repository.get_products_with_stock()
+            
+            self.log_operation("get_products_with_stock_success", {"count": len(products_with_stock)})
+            return products_with_stock
+                
+        except Exception as e:
+            self.log_error("get_products_with_stock", e)
+            raise ServiceError(f"Failed to get products with stock: {str(e)}")
+    
+    def get_low_stock_products(self, threshold: int = 10) -> List[Dict[str, Any]]:
+        """Get products with stock below threshold"""
+        try:
+            self.log_operation("get_low_stock_products", {"threshold": threshold})
+            
+            low_stock_products = self.product_repository.get_low_stock_products(threshold)
+            
+            self.log_operation("get_low_stock_products_success", {"count": len(low_stock_products)})
             return low_stock_products
-            
+                
         except Exception as e:
-            logger.error(f"Error getting low stock products: {e}")
-            return []
+            self.log_error("get_low_stock_products", e, {"threshold": threshold})
+            raise ServiceError(f"Failed to get low stock products: {str(e)}")
     
-    @staticmethod
-    def get_overstocked_products() -> List[Dict[str, Any]]:
-        """Get products that are overstocked"""
+    def get_out_of_stock_products(self) -> List[Dict[str, Any]]:
+        """Get products with no available stock"""
         try:
-            products = Product.get_all()
-            overstocked_products = []
+            self.log_operation("get_out_of_stock_products")
             
-            for product in products:
-                if product.is_overstocked():
-                    stock_levels = product.get_stock_levels()
-                    overstocked_products.append({
-                        'product': product.to_dict(),
-                        'stock_levels': stock_levels,
-                        'excess': stock_levels['total_available'] - 100  # Default threshold is 100
-                    })
+            out_of_stock_products = self.product_repository.get_out_of_stock_products()
             
-            # Sort by excess (highest first)
-            overstocked_products.sort(key=lambda x: x['excess'], reverse=True)
-            return overstocked_products
-            
+            self.log_operation("get_out_of_stock_products_success", {"count": len(out_of_stock_products)})
+            return out_of_stock_products
+                
         except Exception as e:
-            logger.error(f"Error getting overstocked products: {e}")
-            return []
+            self.log_error("get_out_of_stock_products", e)
+            raise ServiceError(f"Failed to get out of stock products: {str(e)}")
     
-    @staticmethod
-    def get_expiring_products(days_threshold: int = 30) -> List[Dict[str, Any]]:
-        """Get products with items expiring soon"""
+    def get_products_by_warehouse(self, warehouse_id: str) -> List[Dict[str, Any]]:
+        """Get products available in a specific warehouse"""
         try:
-            products = Product.get_all()
-            expiring_products = []
+            self.log_operation("get_products_by_warehouse", {"warehouse_id": warehouse_id})
             
-            for product in products:
-                if product.batch_tracked:
-                    stock_items = StockItem.get_by_product(product.id)
-                    expiring_items = []
-                    
-                    for item in stock_items:
-                        if item.expiry_date:
-                            days_until_expiry = item.days_until_expiry()
-                            if days_until_expiry is not None and days_until_expiry <= days_threshold:
-                                expiring_items.append({
-                                    'stock_item_id': item.id,
-                                    'batch_id': item.batch_id,
-                                    'quantity': item.on_hand,
-                                    'expiry_date': item.expiry_date.isoformat(),
-                                    'days_until_expiry': days_until_expiry
-                                })
-                    
-                    if expiring_items:
-                        expiring_products.append({
-                            'product': product.to_dict(),
-                            'expiring_items': expiring_items
-                        })
+            if not warehouse_id:
+                raise ValidationError("Warehouse ID is required")
             
+            products = self.product_repository.get_products_by_warehouse(warehouse_id)
+            
+            self.log_operation("get_products_by_warehouse_success", {"warehouse_id": warehouse_id, "count": len(products)})
+            return products
+                
+        except Exception as e:
+            self.log_error("get_products_by_warehouse", e, {"warehouse_id": warehouse_id})
+            if isinstance(e, ValidationError):
+                raise
+            raise ServiceError(f"Failed to get products by warehouse: {str(e)}")
+    
+    def get_product_statistics(self) -> Dict[str, Any]:
+        """Get product statistics for dashboard"""
+        try:
+            self.log_operation("get_product_statistics")
+            
+            stats = self.product_repository.get_product_statistics()
+            
+            self.log_operation("get_product_statistics_success")
+            return stats
+                
+        except Exception as e:
+            self.log_error("get_product_statistics", e)
+            raise ServiceError(f"Failed to get product statistics: {str(e)}")
+    
+    def get_products_with_expiring_batches(self, days_ahead: int = 30) -> List[Dict[str, Any]]:
+        """Get products with batches expiring soon"""
+        try:
+            self.log_operation("get_products_with_expiring_batches", {"days_ahead": days_ahead})
+            
+            expiring_products = self.product_repository.get_products_with_expiring_batches(days_ahead)
+            
+            self.log_operation("get_products_with_expiring_batches_success", {"count": len(expiring_products)})
             return expiring_products
-            
+                
         except Exception as e:
-            logger.error(f"Error getting expiring products: {e}")
-            return []
+            self.log_error("get_products_with_expiring_batches", e, {"days_ahead": days_ahead})
+            raise ServiceError(f"Failed to get products with expiring batches: {str(e)}")
     
-    @staticmethod
-    def generate_product_report() -> Dict[str, Any]:
-        """Generate comprehensive product report"""
+    def get_product_usage_stats(self, days: int = 30) -> List[Dict[str, Any]]:
+        """Get product usage statistics based on transactions"""
         try:
-            products = Product.get_all()
-            total_products = len(products)
+            self.log_operation("get_product_usage_stats", {"days": days})
             
-            # Categorize products
-            batch_tracked_count = sum(1 for p in products if p.batch_tracked)
-            non_batch_tracked_count = total_products - batch_tracked_count
+            usage_stats = self.product_repository.get_product_usage_stats(days)
             
-            # Stock status
-            low_stock_count = len(ProductService.get_low_stock_products())
-            overstocked_count = len(ProductService.get_overstocked_products())
-            expiring_count = len(ProductService.get_expiring_products())
-            
-            return {
-                'total_products': total_products,
-                'batch_tracked': batch_tracked_count,
-                'non_batch_tracked': non_batch_tracked_count,
-                'low_stock_count': low_stock_count,
-                'overstocked_count': overstocked_count,
-                'expiring_count': expiring_count,
-                'generated_at': datetime.now().isoformat()
-            }
-            
+            self.log_operation("get_product_usage_stats_success", {"count": len(usage_stats)})
+            return usage_stats
+                
         except Exception as e:
-            logger.error(f"Error generating product report: {e}")
-            return {'error': str(e)}
+            self.log_error("get_product_usage_stats", e, {"days": days})
+            raise ServiceError(f"Failed to get product usage stats: {str(e)}")
+    
+    def bulk_create_products(self, products_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Create multiple products in bulk"""
+        try:
+            self.log_operation("bulk_create_products", {"count": len(products_data)})
+            
+            if not products_data:
+                raise ValidationError("No products data provided")
+            
+            # Validate each product
+            for i, product_data in enumerate(products_data):
+                required_fields = ['name', 'sku']
+                self.validate_required_fields(product_data, required_fields)
+                
+                # Check SKU uniqueness
+                if self.product_repository.get_by_sku(product_data['sku']):
+                    raise ValidationError(f"Product {i+1}: SKU '{product_data['sku']}' already exists")
+                
+                # Check barcode uniqueness if provided
+                if product_data.get('barcode') and self.product_repository.get_by_barcode(product_data['barcode']):
+                    raise ValidationError(f"Product {i+1}: Barcode '{product_data['barcode']}' already exists")
+            
+            # Sanitize all products
+            sanitized_products = [self.sanitize_input(product_data) for product_data in products_data]
+            
+            # Create products in bulk
+            created_products = self.product_repository.bulk_create(sanitized_products)
+            
+            self.log_operation("bulk_create_products_success", {"count": len(created_products)})
+            
+            return self.create_response(
+                success=True,
+                data=[product.to_dict() for product in created_products],
+                message=f"Successfully created {len(created_products)} products"
+            )
+                
+        except Exception as e:
+            self.log_error("bulk_create_products", e, {"count": len(products_data)})
+            if isinstance(e, ValidationError):
+                return self.create_response(success=False, error=str(e))
+            raise ServiceError(f"Failed to bulk create products: {str(e)}")
+    
+    def bulk_update_products(self, updates: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Update multiple products in bulk"""
+        try:
+            self.log_operation("bulk_update_products", {"count": len(updates)})
+            
+            if not updates:
+                raise ValidationError("No product updates provided")
+            
+            # Validate each update
+            for i, update_data in enumerate(updates):
+                if 'id' not in update_data:
+                    raise ValidationError(f"Update {i+1}: Product ID is required")
+                
+                # Check if product exists
+                if not self.product_repository.exists(update_data['id']):
+                    raise ValidationError(f"Update {i+1}: Product with ID '{update_data['id']}' not found")
+            
+            # Sanitize all updates
+            sanitized_updates = [self.sanitize_input(update_data) for update_data in updates]
+            
+            # Update products in bulk
+            updated_products = self.product_repository.bulk_update(sanitized_updates)
+            
+            self.log_operation("bulk_update_products_success", {"count": len(updated_products)})
+            
+            return self.create_response(
+                success=True,
+                data=[product.to_dict() for product in updated_products],
+                message=f"Successfully updated {len(updated_products)} products"
+            )
+                
+        except Exception as e:
+            self.log_error("bulk_update_products", e, {"count": len(updates)})
+            if isinstance(e, ValidationError):
+                return self.create_response(success=False, error=str(e))
+            raise ServiceError(f"Failed to bulk update products: {str(e)}")
+    
+    def bulk_delete_products(self, product_ids: List[str]) -> Dict[str, Any]:
+        """Delete multiple products in bulk"""
+        try:
+            self.log_operation("bulk_delete_products", {"count": len(product_ids)})
+            
+            if not product_ids:
+                raise ValidationError("No product IDs provided")
+            
+            # Check if all products exist
+            for product_id in product_ids:
+                if not self.product_repository.exists(product_id):
+                    raise NotFoundError(f"Product with ID '{product_id}' not found")
+            
+            # Delete products in bulk
+            deleted_count = self.product_repository.bulk_delete(product_ids)
+            
+            self.log_operation("bulk_delete_products_success", {"deleted_count": deleted_count})
+            
+            return self.create_response(
+                success=True,
+                data={"deleted_count": deleted_count},
+                message=f"Successfully deleted {deleted_count} products"
+            )
+                
+        except Exception as e:
+            self.log_error("bulk_delete_products", e, {"count": len(product_ids)})
+            if isinstance(e, (ValidationError, NotFoundError)):
+                return self.create_response(success=False, error=str(e))
+            raise ServiceError(f"Failed to bulk delete products: {str(e)}")

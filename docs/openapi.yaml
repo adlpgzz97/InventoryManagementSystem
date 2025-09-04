@@ -1,0 +1,775 @@
+openapi: 3.0.3
+info:
+  title: Inventory Management System API
+  description: Comprehensive API for managing inventory, products, stock, warehouses, and transactions
+  version: 1.0.0
+  contact:
+    name: Development Team
+    email: dev@inventoryapp.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:5000
+    description: Development server
+  - url: https://api.inventoryapp.com
+    description: Production server
+
+paths:
+  /auth/login:
+    post:
+      summary: User login
+      description: Authenticate user and create session
+      tags:
+        - Authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                  description: Username or email
+                  example: "admin"
+                password:
+                  type: string
+                  description: User password
+                  example: "password123"
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Login successful"
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /auth/logout:
+    get:
+      summary: User logout
+      description: End user session
+      tags:
+        - Authentication
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Logout successful"
+
+  /:
+    get:
+      summary: Main dashboard
+      description: Get main dashboard with system overview
+      tags:
+        - Dashboard
+      responses:
+        '200':
+          description: Dashboard data retrieved successfully
+          content:
+            text/html:
+              schema:
+                type: string
+                description: HTML dashboard page
+
+  /dashboard:
+    get:
+      summary: Dashboard data
+      description: Get dashboard statistics and data
+      tags:
+        - Dashboard
+      responses:
+        '200':
+          description: Dashboard data retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: object
+                    properties:
+                      total_products:
+                        type: integer
+                        example: 150
+                      total_stock_items:
+                        type: integer
+                        example: 1200
+                      low_stock_count:
+                        type: integer
+                        example: 25
+                      expiring_soon:
+                        type: integer
+                        example: 10
+
+  /products:
+    get:
+      summary: List products
+      description: Get all products with optional filtering
+      tags:
+        - Products
+      parameters:
+        - name: page
+          in: query
+          description: Page number for pagination
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: per_page
+          in: query
+          description: Items per page
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: search
+          in: query
+          description: Search term for product name or SKU
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Products retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+    post:
+      summary: Create product
+      description: Create a new product
+      tags:
+        - Products
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductCreate'
+      responses:
+        '201':
+          description: Product created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '400':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /products/{id}:
+    get:
+      summary: Get product
+      description: Get product by ID
+      tags:
+        - Products
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Product retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '404':
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    put:
+      summary: Update product
+      description: Update existing product
+      tags:
+        - Products
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductUpdate'
+      responses:
+        '200':
+          description: Product updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '404':
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+    delete:
+      summary: Delete product
+      description: Delete product by ID
+      tags:
+        - Products
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Product deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Product deleted successfully"
+        '404':
+          description: Product not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /products/bulk-update:
+    post:
+      summary: Bulk update products
+      description: Update multiple products at once
+      tags:
+        - Products
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                $ref: '#/components/schemas/ProductUpdate'
+      responses:
+        '200':
+          description: Products updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Product'
+                  count:
+                    type: integer
+                    example: 5
+
+  /products/bulk-delete:
+    post:
+      summary: Bulk delete products
+      description: Delete multiple products at once
+      tags:
+        - Products
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - product_ids
+              properties:
+                product_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  example: ["uuid1", "uuid2", "uuid3"]
+      responses:
+        '200':
+          description: Products deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  deleted_count:
+                    type: integer
+                    example: 3
+
+  /stock:
+    get:
+      summary: List stock items
+      description: Get all stock items with optional filtering
+      tags:
+        - Stock
+      parameters:
+        - name: warehouse_id
+          in: query
+          description: Filter by warehouse ID
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: product_id
+          in: query
+          description: Filter by product ID
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: low_stock
+          in: query
+          description: Filter low stock items only
+          required: false
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Stock items retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/StockItem'
+
+  /warehouses:
+    get:
+      summary: List warehouses
+      description: Get all warehouses
+      tags:
+        - Warehouses
+      responses:
+        '200':
+          description: Warehouses retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Warehouse'
+
+  /transactions:
+    get:
+      summary: List transactions
+      description: Get all transactions with optional filtering
+      tags:
+        - Transactions
+      parameters:
+        - name: type
+          in: query
+          description: Filter by transaction type
+          required: false
+          schema:
+            type: string
+            enum: [in, out, transfer, adjustment]
+        - name: start_date
+          in: query
+          description: Start date for filtering
+          required: false
+          schema:
+            type: string
+            format: date
+        - name: end_date
+          in: query
+          description: End date for filtering
+          required: false
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Transactions retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Transaction'
+
+components:
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        username:
+          type: string
+          example: "admin"
+        email:
+          type: string
+          format: email
+          example: "admin@inventoryapp.com"
+        role:
+          type: string
+          enum: [admin, user, manager]
+          example: "admin"
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-01-01T00:00:00Z"
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440001"
+        name:
+          type: string
+          example: "Sample Product"
+        sku:
+          type: string
+          example: "SAMPLE-001"
+        description:
+          type: string
+          example: "A sample product for testing"
+        dimensions:
+          type: string
+          example: "10x5x2 cm"
+        weight:
+          type: number
+          format: float
+          example: 0.5
+        picture_url:
+          type: string
+          format: uri
+          example: "https://example.com/image.jpg"
+        barcode:
+          type: string
+          example: "1234567890123"
+        batch_tracked:
+          type: boolean
+          example: false
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-01-01T00:00:00Z"
+
+    ProductCreate:
+      type: object
+      required:
+        - name
+        - sku
+        - barcode
+      properties:
+        name:
+          type: string
+          example: "Sample Product"
+        sku:
+          type: string
+          example: "SAMPLE-001"
+        description:
+          type: string
+          example: "A sample product for testing"
+        dimensions:
+          type: string
+          example: "10x5x2 cm"
+        weight:
+          type: number
+          format: float
+          example: 0.5
+        picture_url:
+          type: string
+          format: uri
+          example: "https://example.com/image.jpg"
+        barcode:
+          type: string
+          example: "1234567890123"
+        batch_tracked:
+          type: boolean
+          example: false
+
+    ProductUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+          example: "Updated Product Name"
+        sku:
+          type: string
+          example: "UPDATED-001"
+        description:
+          type: string
+          example: "Updated description"
+        dimensions:
+          type: string
+          example: "15x10x5 cm"
+        weight:
+          type: number
+          format: float
+          example: 1.0
+        picture_url:
+          type: string
+          format: uri
+          example: "https://example.com/updated.jpg"
+        barcode:
+          type: string
+          example: "9876543210987"
+        batch_tracked:
+          type: boolean
+          example: true
+
+    StockItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440002"
+        product_id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440001"
+        warehouse_id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440003"
+        bin_id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440004"
+        quantity:
+          type: integer
+          example: 100
+        expiry_date:
+          type: string
+          format: date
+          example: "2024-12-31"
+        batch_number:
+          type: string
+          example: "BATCH-001"
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-01-01T00:00:00Z"
+
+    Warehouse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440003"
+        name:
+          type: string
+          example: "Main Warehouse"
+        code:
+          type: string
+          example: "WH-001"
+        address:
+          type: string
+          example: "123 Warehouse St, City, State 12345"
+        contact_person:
+          type: string
+          example: "John Doe"
+        contact_email:
+          type: string
+          format: email
+          example: "john.doe@warehouse.com"
+        contact_phone:
+          type: string
+          example: "+1-555-123-4567"
+        parent_warehouse_id:
+          type: string
+          format: uuid
+          nullable: true
+          example: null
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-01-01T00:00:00Z"
+
+    Transaction:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440005"
+        type:
+          type: string
+          enum: [in, out, transfer, adjustment]
+          example: "in"
+        product_id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440001"
+        warehouse_id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440003"
+        quantity:
+          type: integer
+          example: 50
+        user_id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        notes:
+          type: string
+          example: "Initial stock received"
+        created_at:
+          type: string
+          format: date-time
+          example: "2024-01-01T00:00:00Z"
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+          example: 1
+        per_page:
+          type: integer
+          example: 20
+        total:
+          type: integer
+          example: 150
+        pages:
+          type: integer
+          example: 8
+
+    ErrorResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: string
+          example: "Validation error occurred"
+        error_code:
+          type: string
+          example: "VALIDATION_ERROR"
+        timestamp:
+          type: string
+          format: date-time
+          example: "2024-01-01T00:00:00Z"
+
+tags:
+  - name: Authentication
+    description: User authentication and session management
+  - name: Dashboard
+    description: Dashboard and system overview
+  - name: Products
+    description: Product management operations
+  - name: Stock
+    description: Stock item management
+  - name: Warehouses
+    description: Warehouse management
+  - name: Transactions
+    description: Transaction tracking and management
+  - name: Scanner
+    description: Barcode scanning operations

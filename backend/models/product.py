@@ -1,20 +1,20 @@
 """
 Product model for Inventory Management System
-Handles product data, validation, and database operations
+Pure data container with basic CRUD operations
 """
 
 from typing import Optional, Dict, Any, List
-import logging
 from datetime import datetime
+import logging
 
-from utils.database import execute_query
+from backend.models.base_model import BaseModel
+from backend.utils.database import execute_query
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 
-class Product:
-    """Product model for inventory management"""
+class Product(BaseModel):
+    """Product model - data container only"""
     
     def __init__(self, id: str, name: str, description: str = None, sku: str = None,
                  barcode: str = None, dimensions: str = None, weight: float = None,
@@ -67,9 +67,7 @@ class Product:
     
     @classmethod
     def get_by_id(cls, product_id: str) -> Optional['Product']:
-        """Get product by ID"""
-        logger.info(f"Product.get_by_id called with product_id: {product_id}")
-        logger.info(f"Product ID type: {type(product_id)}")
+        """Get product by ID - basic CRUD operation"""
         try:
             result = execute_query(
                 """
@@ -82,9 +80,7 @@ class Product:
             )
             
             if result:
-                logger.info(f"Product found: {result}")
                 return cls.from_dict(result)
-            logger.warning(f"No product found for ID: {product_id}")
             return None
             
         except Exception as e:
@@ -93,7 +89,7 @@ class Product:
     
     @classmethod
     def get_by_barcode(cls, barcode: str) -> Optional['Product']:
-        """Get product by barcode"""
+        """Get product by barcode - basic CRUD operation"""
         try:
             result = execute_query(
                 """
@@ -114,8 +110,30 @@ class Product:
             return None
     
     @classmethod
+    def get_by_sku(cls, sku: str) -> Optional['Product']:
+        """Get product by SKU - basic CRUD operation"""
+        try:
+            result = execute_query(
+                """
+                SELECT id, name, description, sku, barcode, dimensions, weight,
+                       picture_url, batch_tracked, created_at
+                FROM products WHERE sku = %s
+                """,
+                (sku,),
+                fetch_one=True
+            )
+            
+            if result:
+                return cls.from_dict(result)
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error getting product by SKU {sku}: {e}")
+            return None
+    
+    @classmethod
     def get_all(cls, limit: int = None, offset: int = None) -> List['Product']:
-        """Get all products with optional pagination"""
+        """Get all products with optional pagination - basic CRUD operation"""
         try:
             query = """
                 SELECT id, name, description, sku, barcode, dimensions, weight,
@@ -139,7 +157,7 @@ class Product:
     
     @classmethod
     def search(cls, search_term: str) -> List['Product']:
-        """Search products by name, description, or SKU"""
+        """Search products by name, description, or SKU - basic CRUD operation"""
         try:
             search_pattern = f"%{search_term}%"
             
@@ -165,7 +183,7 @@ class Product:
     def create(cls, name: str, description: str = None, sku: str = None,
                barcode: str = None, dimensions: str = None, weight: float = None,
                picture_url: str = None, batch_tracked: bool = False) -> Optional['Product']:
-        """Create a new product"""
+        """Create a new product - basic CRUD operation"""
         try:
             result = execute_query(
                 """
@@ -189,7 +207,7 @@ class Product:
             return None
     
     def update(self, **kwargs) -> bool:
-        """Update product attributes"""
+        """Update product attributes - basic CRUD operation"""
         try:
             # Build dynamic update query
             fields = []
@@ -220,7 +238,7 @@ class Product:
             return False
     
     def delete(self) -> bool:
-        """Delete the product"""
+        """Delete the product - basic CRUD operation"""
         try:
             result = execute_query(
                 "DELETE FROM products WHERE id = %s RETURNING id",
@@ -232,60 +250,3 @@ class Product:
         except Exception as e:
             logger.error(f"Error deleting product {self.id}: {e}")
             return False
-    
-    def get_stock_levels(self) -> Dict[str, int]:
-        """Get current stock levels for this product"""
-        try:
-            from models.stock import StockItem
-            
-            stock_items = StockItem.get_by_product(self.id)
-            
-            total_on_hand = sum(item.on_hand for item in stock_items)
-            total_reserved = sum(item.qty_reserved for item in stock_items)
-            total_available = total_on_hand - total_reserved
-            
-            return {
-                'total_on_hand': total_on_hand,
-                'total_reserved': total_reserved,
-                'total_available': total_available,
-                'stock_items_count': len(stock_items)
-            }
-            
-        except Exception as e:
-            logger.error(f"Error getting stock levels for product {self.id}: {e}")
-            return {
-                'total_on_hand': 0,
-                'total_reserved': 0,
-                'total_available': 0,
-                'stock_items_count': 0
-            }
-    
-    @property
-    def available_stock(self) -> int:
-        """Get available stock for this product"""
-        stock_levels = self.get_stock_levels()
-        return stock_levels['total_available']
-    
-    @property
-    def total_stock(self) -> int:
-        """Get total stock for this product"""
-        stock_levels = self.get_stock_levels()
-        return stock_levels['total_on_hand']
-    
-    @property
-    def reserved_stock(self) -> int:
-        """Get reserved stock for this product"""
-        stock_levels = self.get_stock_levels()
-        return stock_levels['total_reserved']
-    
-    def is_low_stock(self) -> bool:
-        """Check if product is low on stock (placeholder - no min_stock_level in schema)"""
-        # Since min_stock_level doesn't exist in schema, we'll use a default threshold
-        stock_levels = self.get_stock_levels()
-        return stock_levels['total_available'] <= 5  # Default low stock threshold
-    
-    def is_overstocked(self) -> bool:
-        """Check if product is overstocked (placeholder - no max_stock_level in schema)"""
-        # Since max_stock_level doesn't exist in schema, we'll use a default threshold
-        stock_levels = self.get_stock_levels()
-        return stock_levels['total_available'] >= 100  # Default overstock threshold

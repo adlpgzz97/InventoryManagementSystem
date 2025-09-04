@@ -1,0 +1,71 @@
+{% set error_messages = [] %}
+{% with messages = get_flashed_messages(with_categories=true) %}
+  {% for category, message in messages %}
+    {% if category == 'danger' or category == 'error' %}
+      {% set _ = error_messages.append(message) %}
+    {% endif %}
+  {% endfor %}
+{% endwith %}
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Inventory Management{% endblock %}</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Include component styles -->
+    {% include 'components/styles.html' %}
+    
+    <!-- Custom page styles -->
+    {% block styles %}{% endblock %}
+</head>
+<body>
+    <!-- Navigation Header -->
+    {% include 'components/navigation.html' %}
+    
+    <div class="container-fluid">
+        <div class="row">
+            <!-- Sidebar -->
+            {% include 'components/sidebar.html' %}
+            
+            <!-- Main Content -->
+            <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4 main-content">
+                <!-- Page Header -->
+                {% block page_header %}{% endblock %}
+                
+                <!-- Flash Messages -->
+                {% if error_messages %}
+                <div class="alert alert-danger alert-enhanced" role="alert">
+                    <h6 class="alert-heading">Errors occurred:</h6>
+                    <ul class="mb-0">
+                        {% for message in error_messages %}
+                        <li>{{ message }}</li>
+                        {% endfor %}
+                    </ul>
+                </div>
+                {% endif %}
+                
+                <!-- Main Content Block -->
+                {% block content %}{% endblock %}
+            </main>
+        </div>
+    </div>
+    
+    <!-- Include component JavaScript -->
+    {% include 'components/javascript.html' %}
+    
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Custom page scripts -->
+    {% block scripts %}{% endblock %}
+</body>
+</html>
