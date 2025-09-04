@@ -1,0 +1,297 @@
+{% extends "base_auth.html" %}
+
+{% block title %}Login - Inventory Management{% endblock %}
+
+{% block content %}
+<div class="auth-container">
+    <div class="auth-header">
+        <h1><i class="fas fa-boxes me-2"></i>Inventory Manager</h1>
+        <p class="subtitle">Please sign in to continue</p>
+    </div>
+    
+    <div class="auth-body">
+        <!-- Primary JavaScript-enhanced form -->
+        <form method="POST" id="login-form" style="display: block;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+            <div class="mb-3">
+                <label for="username" class="form-label">
+                    <i class="fas fa-user me-2"></i>Username
+                </label>
+                <input type="text" class="form-control" id="username" name="username"
+                       placeholder="Enter your username" required autofocus>
+            </div>
+
+            <div class="mb-3">
+                <label for="password" class="form-label">
+                    <i class="fas fa-lock me-2"></i>Password
+                </label>
+                <input type="password" class="form-control" id="password" name="password"
+                       placeholder="Enter your password" required>
+            </div>
+
+            <div class="mb-4 form-check">
+                <input type="checkbox" class="form-check-input" id="remember" name="remember">
+                <label class="form-check-label" for="remember">
+                    Remember me
+                </label>
+            </div>
+
+            <div class="d-grid">
+                <button type="submit" class="btn btn-primary" id="login-btn">
+                    <i class="fas fa-sign-in-alt me-2"></i>Sign In
+                </button>
+
+                <!-- Fallback button for PyWebView compatibility -->
+                <button type="button" class="btn btn-outline-secondary mt-2" id="fallback-login-btn"
+                        onclick="submitFallbackLogin()" style="display: none;">
+                    <i class="fas fa-shield-alt me-2"></i>Fallback Login
+                </button>
+                
+                <!-- Debug button for troubleshooting -->
+                <button type="button" class="btn btn-info mt-2" onclick="testSession()">
+                    <i class="fas fa-bug me-2"></i>Test Session
+                </button>
+                
+                <!-- Test connection button -->
+                <button type="button" class="btn btn-success mt-2" onclick="testConnection()">
+                    <i class="fas fa-wifi me-2"></i>Test Connection
+                </button>
+            </div>
+        </form>
+    </div>
+    
+    <div class="auth-footer">
+        <small class="text-muted">
+            <strong>Default users:</strong><br>
+            <code>admin</code> / <code>admin123</code><br>
+            <code>manager</code> / <code>password</code><br>
+            <code>worker</code> / <code>password</code>
+        </small>
+    </div>
+    
+    <!-- Simple Debug Panel -->
+    <div id="debug-panel" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 5px; display: none;">
+        <h6>Debug Information</h6>
+        <div id="debug-content" style="font-family: monospace; font-size: 12px;"></div>
+        <button type="button" class="btn btn-sm btn-secondary mt-2" onclick="toggleDebug()">Toggle Debug</button>
+    </div>
+</div>
+
+<script>
+// Simple debug functions
+function toggleDebug() {
+    const debugPanel = document.getElementById('debug-panel');
+    debugPanel.style.display = debugPanel.style.display === 'none' ? 'block' : 'none';
+}
+
+function addDebugInfo(message) {
+    const debugContent = document.getElementById('debug-content');
+    const timestamp = new Date().toLocaleTimeString();
+    debugContent.innerHTML += `[${timestamp}] ${message}<br>`;
+    console.log(message);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    addDebugInfo('Login page loaded');
+
+    // Detect pywebview environment
+    if (window.pywebview && window.pywebview.api) {
+        addDebugInfo('PyWebView environment detected');
+        addDebugInfo(`PyWebView API methods: ${Object.keys(window.pywebview.api)}`);
+        // Show fallback button in PyWebView
+        document.getElementById('fallback-login-btn').style.display = 'block';
+    } else {
+        addDebugInfo('Standard web browser environment');
+    }
+    
+    const loginForm = document.getElementById('login-form');
+    const loginBtn = document.getElementById('login-btn');
+    
+    if (loginForm && loginBtn) {
+        addDebugInfo('Form and button found - adding event listeners');
+        
+        // Handle form submission
+        loginForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            addDebugInfo('Form submission started');
+            
+            // Disable button to prevent double submission
+            loginBtn.disabled = true;
+            loginBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Signing In...';
+            
+            // Get form data
+            const formData = new FormData(loginForm);
+            const username = formData.get('username');
+            const password = formData.get('password');
+            const csrfToken = formData.get('csrf_token');
+            
+            addDebugInfo(`Submitting login for user: ${username}, CSRF: ${csrfToken ? 'present' : 'missing'}`);
+            
+            // Submit form using fetch with automatic redirect handling
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            
+            fetch('/auth/login', {
+                method: 'POST',
+                body: formData,
+                signal: controller.signal
+            })
+            .then(response => {
+                clearTimeout(timeoutId);
+                addDebugInfo(`Response status: ${response.status}`);
+                addDebugInfo(`Response headers: ${JSON.stringify(Object.fromEntries(response.headers.entries()))}`);
+                
+                if (response.ok || response.status === 302) {
+                    addDebugInfo('Login successful - redirecting to dashboard');
+                    // Let the browser handle the redirect automatically
+                    window.location.href = '/dashboard';
+                } else {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+            })
+            .catch(error => {
+                clearTimeout(timeoutId);
+                addDebugInfo(`Login error: ${error.message}`);
+                
+                // Check if it's a timeout error
+                if (error.name === 'AbortError') {
+                    addDebugInfo('Login request timed out');
+                    alert('Login request timed out. Please try again.');
+                } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
+                    addDebugInfo('Network error detected');
+                    alert('Network error detected. Please check your connection and try again.');
+                } else {
+                    addDebugInfo('Unknown error occurred during login');
+                    alert('Login failed. Please try again.');
+                }
+                
+                // Re-enable button
+                loginBtn.disabled = false;
+                loginBtn.innerHTML = '<i class="fas fa-sign-in-alt me-2"></i>Sign In';
+            });
+        });
+        
+        addDebugInfo('Event listeners added successfully');
+    } else {
+        addDebugInfo('ERROR: Form or button not found');
+    }
+    
+    // Show debug panel by default for troubleshooting
+    const debugPanel = document.getElementById('debug-panel');
+    if (debugPanel) {
+        debugPanel.style.display = 'block';
+    }
+    
+    // Test session function
+    window.testSession = function() {
+        addDebugInfo('=== Testing Session ===');
+        
+        // Test 1: Check current session
+        fetch('/auth/api/session-test')
+        .then(response => response.json())
+        .then(data => {
+            addDebugInfo(`Session test result: ${JSON.stringify(data, null, 2)}`);
+        })
+        .catch(error => {
+            addDebugInfo(`Session test error: ${error.message}`);
+        });
+        
+        // Test 2: Check if we can access dashboard
+        fetch('/dashboard', { redirect: 'manual' })
+        .then(response => {
+            addDebugInfo(`Dashboard access test: ${response.status} ${response.statusText}`);
+            if (response.headers.get('Location')) {
+                addDebugInfo(`Redirect location: ${response.headers.get('Location')}`);
+            }
+        })
+        .catch(error => {
+            addDebugInfo(`Dashboard test error: ${error.message}`);
+        });
+    };
+    
+    // Fallback login function for PyWebView compatibility
+    window.submitFallbackLogin = function() {
+        addDebugInfo('=== Using Fallback Login Method ===');
+
+        const username = document.getElementById('username').value;
+        const password = document.getElementById('password').value;
+        const csrfToken = document.querySelector('input[name="csrf_token"]').value;
+        const remember = document.getElementById('remember').checked;
+
+        addDebugInfo(`Fallback login attempt for user: ${username}`);
+
+        // Create a simple form and submit it directly (no JavaScript fetch)
+        const fallbackForm = document.createElement('form');
+        fallbackForm.method = 'POST';
+        fallbackForm.action = '/auth/login';
+        fallbackForm.style.display = 'none';
+
+        // Add form fields
+        const fields = [
+            { name: 'username', value: username },
+            { name: 'password', value: password },
+            { name: 'csrf_token', value: csrfToken },
+            { name: 'remember', value: remember ? 'on' : '' }
+        ];
+
+        fields.forEach(field => {
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = field.name;
+            input.value = field.value;
+            fallbackForm.appendChild(input);
+        });
+
+        // Add to document and submit
+        document.body.appendChild(fallbackForm);
+        addDebugInfo('Submitting fallback form...');
+        fallbackForm.submit();
+    };
+
+    // Test connection function
+    window.testConnection = function() {
+        addDebugInfo('=== Testing Connection ===');
+
+        // Test 1: Health endpoint
+        addDebugInfo('Testing health endpoint...');
+        fetch('/api/health', { method: 'GET' })
+        .then(response => {
+            addDebugInfo(`Health endpoint status: ${response.status}`);
+            if (response.ok) {
+                return response.json();
+            } else {
+                throw new Error(`Health endpoint failed: ${response.status}`);
+            }
+        })
+        .then(data => {
+            addDebugInfo(`Health endpoint response: ${JSON.stringify(data, null, 2)}`);
+        })
+        .catch(error => {
+            addDebugInfo(`Health endpoint error: ${error.message}`);
+        });
+
+        // Test 2: Simple GET request
+        addDebugInfo('Testing simple GET request...');
+        fetch('/', { method: 'GET' })
+        .then(response => {
+            addDebugInfo(`Root endpoint status: ${response.status}`);
+            if (response.headers.get('Location')) {
+                addDebugInfo(`Root redirect: ${response.headers.get('Location')}`);
+            }
+        })
+        .catch(error => {
+            addDebugInfo(`Root endpoint error: ${error.message}`);
+        });
+
+        // Test 3: Check if we're in pywebview
+        addDebugInfo('Checking pywebview environment...');
+        if (window.pywebview && window.pywebview.api) {
+            addDebugInfo(`PyWebView detected with methods: ${Object.keys(window.pywebview.api)}`);
+        } else {
+            addDebugInfo('PyWebView not detected');
+        }
+    };
+});
+</script>
+{% endblock %}
