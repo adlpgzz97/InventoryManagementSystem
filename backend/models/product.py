@@ -19,7 +19,7 @@ class Product(BaseModel):
     def __init__(self, id: str, name: str, description: str = None, sku: str = None,
                  barcode: str = None, dimensions: str = None, weight: float = None,
                  picture_url: str = None, batch_tracked: bool = False,
-                 created_at: datetime = None):
+                 category_id: str = None, created_at: datetime = None):
         self.id = id
         self.name = name
         self.description = description
@@ -29,10 +29,24 @@ class Product(BaseModel):
         self.weight = weight
         self.picture_url = picture_url
         self.batch_tracked = batch_tracked
+        self.category_id = category_id
         self.created_at = created_at
     
     def __repr__(self):
         return f"<Product {self.name} (ID: {self.id})>"
+    
+    @property
+    def category(self):
+        """Get the category object for this product"""
+        if not self.category_id:
+            return None
+        
+        try:
+            from backend.models.category import Category
+            return Category.get_by_id(self.category_id)
+        except Exception as e:
+            logger.error(f"Error getting category for product {self.id}: {e}")
+            return None
     
     @property
     def available_stock(self) -> int:
@@ -91,6 +105,7 @@ class Product(BaseModel):
             weight=data.get('weight'),
             picture_url=data.get('picture_url'),
             batch_tracked=data.get('batch_tracked', False),
+            category_id=data.get('category_id'),
             created_at=data.get('created_at')
         )
     
@@ -106,6 +121,7 @@ class Product(BaseModel):
             'weight': self.weight,
             'picture_url': self.picture_url,
             'batch_tracked': self.batch_tracked,
+            'category_id': self.category_id,
             'created_at': self.created_at
         }
     
@@ -181,7 +197,7 @@ class Product(BaseModel):
         try:
             query = """
                 SELECT id, name, description, sku, barcode, dimensions, weight,
-                       picture_url, batch_tracked, created_at
+                       picture_url, batch_tracked, category_id, created_at
                 FROM products
                 ORDER BY name
             """

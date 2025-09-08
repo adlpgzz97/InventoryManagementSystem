@@ -603,7 +603,18 @@
 
         // Delete item
         function deleteItem(itemType, itemId) {
-            fetch(`/delete/${itemType}/${itemId}`, {
+            let url;
+            if (itemType === 'warehouse') {
+                url = `/warehouses/delete/${itemId}`;
+            } else if (itemType === 'product') {
+                url = `/products/delete/${itemId}`;
+            } else if (itemType === 'stock') {
+                url = `/stock/delete/${itemId}`;
+            } else {
+                url = `/delete/${itemType}/${itemId}`;
+            }
+
+            fetch(url, {
                 method: 'POST'
             })
             .then(response => {

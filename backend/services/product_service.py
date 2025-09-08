@@ -21,6 +21,213 @@ class ProductService(BaseService):
     
     def get_service_name(self) -> str:
         return "ProductService"
+
+    def get_product_details(self, product_id: str) -> Dict[str, Any]:
+        """Aggregate product details for the details modal/API."""
+        try:
+            self.log_operation("get_product_details", {"product_id": product_id})
+            if not product_id:
+                return {"error": "Product ID is required"}
+
+            # Sanitize incoming ID (strip quotes/braces/whitespace)
+            pid = str(product_id).strip().strip('"\'{}')
+
+            # Try by UUID first
+            product = self.product_repository.get_by_id(pid)
+            if not product:
+                # Fallbacks: try by SKU or barcode if UUID lookup failed
+                try:
+                    product = self.product_repository.get_by_sku(pid)
+                except Exception:
+                    product = None
+                if not product:
+                    try:
+                        product = self.product_repository.get_by_barcode(pid)
+                    except Exception:
+                        product = None
+                if not product:
+                    return {"error": "Product not found"}
+
+            # Basic product info
+            product_dict: Dict[str, Any] = product.to_dict()
+            # Category info if available
+            try:
+                category = getattr(product, 'category', None)
+                if category:
+                    product_dict['category'] = {
+                        'id': category.id,
+                        'code': category.code,
+                        'description': category.description
+                    }
+                else:
+                    product_dict['category'] = None
+            except Exception:
+                product_dict['category'] = None
+
+            # Stock summary: locations and quantities
+            from backend.models.stock import StockItem
+            from backend.utils.database import execute_query
+
+            # Aggregate stock by location
+            stock_rows = execute_query(
+                """
+                SELECT b.id AS bin_id,
+                       b.code AS bin_code,
+                       l.full_code AS location_code,
+                       w.name AS warehouse_name,
+                       COALESCE(si.on_hand,0) AS on_hand,
+                       COALESCE(si.qty_reserved,0) AS qty_reserved
+                FROM bins b
+                JOIN locations l ON b.location_id = l.id
+                JOIN warehouses w ON l.warehouse_id = w.id
+                LEFT JOIN stock_items si ON si.bin_id = b.id AND si.product_id = %s
+                WHERE si.product_id = %s
+                ORDER BY w.name, l.full_code, b.code
+                """,
+                (product_id, product_id),
+                fetch_all=True
+            ) or []
+
+            total_on_hand = 0
+            total_reserved = 0
+            locations: Dict[str, Dict[str, Any]] = {}
+            for row in stock_rows:
+                loc = row.get('location_code') or 'Unknown'
+                if loc not in locations:
+                    locations[loc] = {
+                        'bins': [],
+                        'on_hand': 0,
+                        'qty_reserved': 0
+                    }
+                bin_entry = {
+                    'bin_id': row.get('bin_id'),
+                    'bin_code': row.get('bin_code'),
+                    'on_hand': row.get('on_hand', 0),
+                    'qty_reserved': row.get('qty_reserved', 0)
+                }
+                locations[loc]['bins'].append(bin_entry)
+                locations[loc]['on_hand'] += bin_entry['on_hand']
+                locations[loc]['qty_reserved'] += bin_entry['qty_reserved']
+                total_on_hand += bin_entry['on_hand']
+                total_reserved += bin_entry['qty_reserved']
+
+            # Flatten locations to an array expected by the frontend helper
+            stock_locations: list = []
+            for loc_code, loc_data in locations.items():
+                for b in loc_data['bins']:
+                    letWarehouse = None
+                    # Try to pull from original stock_rows for this loc/bin
+                    try:
+                        letWarehouse = next((r.get('warehouse_name') for r in stock_rows if r.get('bin_id') == b.get('bin_id')), None)
+                    except Exception:
+                        letWarehouse = None
+                    if not letWarehouse and loc_code:
+                        # Fallback from first character of location code
+                        firstChar = str(loc_code)[0]
+                        letWarehouse = f"Warehouse {firstChar}"
+                    stock_locations.append({
+                        'warehouse_name': letWarehouse,
+                        'aisle': (loc_code or ''),
+                        'bin': (b.get('bin_code') or ''),
+                        'on_hand': b.get('on_hand', 0),
+                        'qty_reserved': b.get('qty_reserved', 0),
+                        'batch_id': None,
+                        'expiry_date': None,
+                        'created_at': None
+                    })
+
+            # Summary
+            summary = {
+                'total_locations': len(stock_locations),
+                'total_transactions': 0
+            }
+
+            # Minimal forecasting model the UI expects
+            avg_daily_usage = 1.0
+            safety_stock = 0
+            lead_time_days = 7
+            reorder_point = 10
+            days_of_stock = float('inf') if avg_daily_usage == 0 else (total_on_hand / avg_daily_usage)
+            stock_status = 'low' if total_on_hand <= reorder_point else 'ok'
+            forecasting = {
+                'current_stock': total_on_hand,
+                'reorder_point': reorder_point,
+                'safety_stock': safety_stock,
+                'avg_daily_usage': avg_daily_usage,
+                'lead_time_days': lead_time_days,
+                'days_of_stock': days_of_stock,
+                'stock_status': stock_status
+            }
+
+            # Warehouse distribution (available by warehouse)
+            warehouse_distribution = execute_query(
+                """
+                SELECT w.name AS warehouse_name,
+                       COALESCE(SUM(GREATEST(si.on_hand - si.qty_reserved, 0)), 0) AS total_available
+                FROM stock_items si
+                JOIN bins b ON si.bin_id = b.id
+                JOIN locations l ON b.location_id = l.id
+                JOIN warehouses w ON l.warehouse_id = w.id
+                WHERE si.product_id = %s
+                GROUP BY w.name
+                ORDER BY w.name
+                """,
+                (pid,),
+                fetch_all=True
+            ) or []
+
+            # Stock movement trends (last 30 days)
+            stock_trends = execute_query(
+                """
+                SELECT DATE(st.created_at) AS date,
+                       SUM(CASE WHEN st.transaction_type = 'receive' THEN st.quantity_change ELSE 0 END) AS received,
+                       SUM(CASE WHEN st.transaction_type = 'ship' THEN ABS(st.quantity_change) ELSE 0 END) AS shipped
+                FROM stock_transactions st
+                JOIN stock_items si ON st.stock_item_id = si.id
+                WHERE si.product_id = %s
+                  AND st.created_at >= CURRENT_DATE - INTERVAL '30 days'
+                GROUP BY DATE(st.created_at)
+                ORDER BY date
+                """,
+                (pid,),
+                fetch_all=True
+            ) or []
+
+            # Compute cumulative on_hand series so it reflects running inventory level.
+            # Derive starting balance so that final day approximates current total_on_hand.
+            net_total = 0
+            for row in stock_trends:
+                rec = row.get('received') or 0
+                shp = row.get('shipped') or 0
+                net_total += (rec - shp)
+            starting_balance = total_on_hand - net_total
+            # If negative (incomplete history), clamp to 0 for display purposes
+            if starting_balance is None:
+                starting_balance = 0
+            starting_balance = max(starting_balance, 0)
+
+            running = starting_balance
+            for row in stock_trends:
+                rec = row.get('received') or 0
+                shp = row.get('shipped') or 0
+                running += (rec - shp)
+                row['on_hand'] = max(running, 0)
+
+            response_data = {
+                'product': product_dict,
+                'stock_locations': stock_locations,
+                'summary': summary,
+                'forecasting': forecasting,
+                'transaction_history': [],
+                'warehouse_distribution': warehouse_distribution,
+                'stock_trends': stock_trends,
+                'expiry_alerts': []
+            }
+
+            return response_data
+        except Exception as e:
+            self.log_error("get_product_details", e, {"product_id": product_id})
+            return {"error": f"Failed to get product details: {str(e)}"}
     
     def get_product_by_id(self, product_id: str) -> Optional[Product]:
         """Get product by ID"""

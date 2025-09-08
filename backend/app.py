@@ -25,6 +25,7 @@ from backend.routes import (
     scanner_bp,
     transactions_bp
 )
+from backend.routes.api_categories import api_categories_bp
 
 # Configure logging
 logging.basicConfig(
@@ -109,6 +110,9 @@ def register_blueprints(app):
         
         # Scanner routes
         app.register_blueprint(scanner_bp)
+        
+        # API routes
+        app.register_blueprint(api_categories_bp)
         
         logger.info("All blueprints registered successfully")
         

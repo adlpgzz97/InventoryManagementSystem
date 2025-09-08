@@ -46,7 +46,7 @@ class BaseRepository(ABC, Generic[T]):
                 result = cursor.fetchone()
                 
                 if result:
-                    return self.model_class.from_dict(dict(result))
+                    return self.model_class.from_dict(self._row_to_dict(cursor, result))
                 return None
                 
         except Exception as e:

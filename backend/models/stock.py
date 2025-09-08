@@ -165,6 +165,7 @@ class StockItem(BaseModel):
                     p.name as product_name, p.sku as product_sku,
                     b.code as bin_code,
                     l.full_code as location_code,
+                    w.id as warehouse_id,
                     w.name as warehouse_name
                 FROM stock_items si
                 JOIN products p ON si.product_id = p.id

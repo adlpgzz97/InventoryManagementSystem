@@ -37,9 +37,9 @@
                             <option value="">All Warehouses</option>
                             {% set warehouses = [] %}
                             {% for item in stock_items %}
-                                {% if item.warehouse and item.warehouse.id %}
-                                    {% set warehouse_id = item.warehouse.id %}
-                                    {% set warehouse_name = item.warehouse.name %}
+                                {% if item.warehouse_id and item.warehouse_name %}
+                                    {% set warehouse_id = item.warehouse_id %}
+                                    {% set warehouse_name = item.warehouse_name %}
                                     {% if warehouse_id not in warehouses %}
                                         {% set _ = warehouses.append(warehouse_id) %}
                                         <option value="{{ warehouse_id }}" {% if selected_warehouse and selected_warehouse == warehouse_id %}selected{% endif %}>{{ warehouse_name }}</option>
@@ -147,7 +147,8 @@
                             data-sku="{{ (item.product_sku or '')|lower }}"
                             data-bin="{{ (item.bin_code or '')|lower }}"
                             data-location="{{ (item.location_code or '')|lower }}"
-                            data-warehouse="{{ (item.warehouse_name or '')|lower }}"
+                            data-warehouse="{{ item.warehouse_id or '' }}"
+                            data-warehouse-name="{{ (item.warehouse_name or '')|lower }}"
                             data-status="{% if ((item.on_hand or 0) - (item.qty_reserved or 0)) == 0 %}out{% elif ((item.on_hand or 0) - (item.qty_reserved or 0)) < 10 %}low{% else %}in{% endif %}">
                         <td>
                             <div class="form-check">
@@ -512,7 +513,8 @@ document.addEventListener('DOMContentLoaded', function() {
             const sku = row.getAttribute('data-sku') || '';
             const bin = row.getAttribute('data-bin') || '';
             const location = row.getAttribute('data-location') || '';
-            const warehouse = row.getAttribute('data-warehouse') || '';
+            const warehouseId = row.getAttribute('data-warehouse') || '';
+            const warehouseName = row.getAttribute('data-warehouse-name') || '';
             const status = row.getAttribute('data-status') || '';
             const available = parseInt(row.getAttribute('data-available')) || 0;
             
@@ -520,13 +522,14 @@ document.addEventListener('DOMContentLoaded', function() {
                 productName.includes(searchTerm) ||
                 sku.includes(searchTerm) ||
                 bin.includes(searchTerm) ||
-                location.includes(searchTerm);
+                location.includes(searchTerm) ||
+                warehouseName.includes(searchTerm);
             
-            const matchesBin = !warehouseTerm || warehouse === warehouseTerm;
+            const matchesWarehouse = !warehouseTerm || warehouseId === warehouseTerm;
             const matchesStatus = !statusTerm || status === statusTerm;
             const matchesLowStock = !lowStockOnly || available < 10;
             
-            return matchesSearch && matchesBin && matchesStatus && matchesLowStock;
+            return matchesSearch && matchesWarehouse && matchesStatus && matchesLowStock;
         });
 
         // Reset to first page when filtering

@@ -41,10 +41,9 @@
                     <div class="col-md-3">
                         <select id="filter-category" class="form-select form-select-sm">
                             <option value="">All Categories</option>
-                            <option value="widget">Widgets</option>
-                            <option value="gadget">Gadgets</option>
-                            <option value="tool">Tools</option>
-                            <option value="other">Other</option>
+                            {% for category in categories %}
+                                <option value="{{ category.code|lower }}">{{ category.description or category.code }}</option>
+                            {% endfor %}
                         </select>
                     </div>
                     <div class="col-md-4">
@@ -114,14 +113,17 @@
                         <th class="sortable" data-column="barcode" data-type="text">
                             Barcode <i class="fas fa-sort text-muted"></i>
                         </th>
-                        <!-- Temporarily disabled to fix performance issues
+                        <th class="sortable" data-column="category" data-type="text">
+                            Category <i class="fas fa-sort text-muted"></i>
+                        </th>
+                        {# Temporarily disabled to fix performance issues
                         <th class="sortable" data-column="available_stock" data-type="number">
                             Available Stock <i class="fas fa-sort text-muted"></i>
                         </th>
                         <th class="sortable" data-column="total_stock" data-type="number">
                             Total Stock <i class="fas fa-sort text-muted"></i>
                         </th>
-                        -->
+                        #}
                         <th class="sortable" data-column="batch_tracking" data-type="text">
                             Batch Tracking <i class="fas fa-sort text-muted"></i>
                         </th>
@@ -138,11 +140,11 @@
                         data-sku="{{ product.sku|lower }}" 
                         data-name="{{ product.name|lower }}" 
                         data-description="{{ (product.description or '')|lower }}" 
-                        <!-- Temporarily disabled to fix performance issues
+                        {# Temporarily disabled to fix performance issues
                         data-available-stock="{{ product.available_stock }}"
                         data-total-stock="{{ product.total_stock }}"
-                        -->
-                        data-category="{% if 'widget' in product.name|lower %}widget{% elif 'gadget' in product.name|lower %}gadget{% elif 'tool' in product.name|lower %}tool{% else %}other{% endif %}">
+                        #}
+                        data-category="{% if product.category %}{{ product.category.code|lower }}{% else %}uncategorized{% endif %}">
                         <td>
                             <div class="form-check">
                                 <input class="form-check-input product-checkbox" type="checkbox" value="{{ product.id }}" id="product-{{ loop.index }}">
@@ -165,7 +167,18 @@
                             {% endif %}
                         </td>
                         <td>{{ product.barcode or 'N/A' }}</td>
-                        <!-- Temporarily disabled to fix performance issues
+                        <td>
+                            {% if product.category %}
+                                <span class="badge bg-primary">
+                                    <i class="fas fa-tag me-1"></i>{{ product.category.description or product.category.code }}
+                                </span>
+                            {% else %}
+                                <span class="badge bg-secondary">
+                                    <i class="fas fa-question me-1"></i>Uncategorized
+                                </span>
+                            {% endif %}
+                        </td>
+                        {# Temporarily disabled to fix performance issues
                         <td>
                             <span class="badge {% if product.available_stock > 0 %}bg-success{% elif product.available_stock == 0 %}bg-danger{% else %}bg-secondary{% endif %}">
                                 <i class="fas fa-boxes me-1"></i>{{ product.available_stock }}
@@ -176,7 +189,7 @@
                                 <i class="fas fa-cubes me-1"></i>{{ product.total_stock }}
                             </span>
                         </td>
-                        -->
+                        #}
                         <td>
                             {% if product.batch_tracked %}
                                 <span class="badge bg-info">
@@ -1420,28 +1433,31 @@ document.addEventListener('DOMContentLoaded', function() {
      function populateProductDetails(data) {
          // Handle the API response structure where data is wrapped in 'details'
          const actualData = data.details || data;
-         const product = actualData.product;
-         const forecasting = actualData.forecasting;
-
+         const product = actualData.product || {};
+         const forecasting = actualData.forecasting || { current_stock: 0, reorder_point: 0, safety_stock: 0, avg_daily_usage: 0, lead_time_days: 0, days_of_stock: 0, stock_status: 'ok' };
+         const locations = Array.isArray(actualData.stock_locations) ? actualData.stock_locations : [];
+         const transactions = Array.isArray(actualData.transaction_history) ? actualData.transaction_history : [];
+         const summary = actualData.summary || { total_locations: locations.length, total_transactions: transactions.length };
+ 
          // Hide loading, show content
          document.getElementById('loading-spinner').style.display = 'none';
          document.getElementById('product-content').style.display = 'block';
-
+ 
          // Update summary cards
          document.getElementById('available-stock').textContent = forecasting.current_stock;
-         document.getElementById('total-stock').textContent = actualData.summary.total_locations > 0 ? 
-             actualData.stock_locations.reduce((sum, loc) => sum + loc.on_hand + loc.qty_reserved, 0) : 0;
-         
+         document.getElementById('total-stock').textContent = summary.total_locations > 0 ? 
+             locations.reduce((sum, loc) => sum + (loc.on_hand || 0) + (loc.qty_reserved || 0), 0) : 0;
+ 
          const daysOfStock = forecasting.days_of_stock;
          document.getElementById('days-of-stock').textContent = daysOfStock === Infinity ? '∞' : Math.round(daysOfStock);
-         
+ 
          const statusBadge = document.getElementById('stock-status-badge');
          if (forecasting.stock_status === 'low') {
              statusBadge.innerHTML = '<span class="badge bg-danger">Low Stock</span>';
          } else {
              statusBadge.innerHTML = '<span class="badge bg-success">OK</span>';
          }
-
+ 
          // Update product information
          document.getElementById('product-sku').textContent = product.sku;
          document.getElementById('product-name-info').textContent = product.name;
@@ -1450,31 +1466,32 @@ document.addEventListener('DOMContentLoaded', function() {
          document.getElementById('product-weight').textContent = product.weight ? `${product.weight} kg` : 'N/A';
          document.getElementById('product-barcode').textContent = product.barcode || 'N/A';
          document.getElementById('product-batch-tracking').textContent = product.batch_tracked ? 'Enabled' : 'Disabled';
-
+ 
          // Populate locations table
-         populateLocationsTable(actualData.stock_locations);
-
+         populateLocationsTable(locations);
+ 
          // Populate transactions table
-         populateTransactionsTable(actualData.transaction_history);
-
+         populateTransactionsTable(transactions);
+ 
          // Populate forecasting data
-         populateForecastingData(actualData.forecasting);
-
+         populateForecastingData(forecasting);
+ 
          // Initialize forecasting controls
          initializeForecastingControls();
-
+ 
          // Populate alerts
          populateAlerts(actualData);
-
+ 
          // Create charts
          createCharts(actualData);
-
+ 
          // Update counts
-         document.getElementById('locations-count').textContent = `${actualData.summary.total_locations} locations`;
-         document.getElementById('transactions-count').textContent = `${actualData.summary.total_transactions} transactions`;
+         document.getElementById('locations-count').textContent = `${summary.total_locations} locations`;
+         document.getElementById('transactions-count').textContent = `${summary.total_transactions} transactions`;
      }
 
      function populateLocationsTable(locations) {
+         locations = Array.isArray(locations) ? locations : [];
          const tbody = document.getElementById('locations-table-body');
          tbody.innerHTML = '';
 
@@ -1499,6 +1516,7 @@ document.addEventListener('DOMContentLoaded', function() {
      }
 
      function populateTransactionsTable(transactions) {
+         transactions = Array.isArray(transactions) ? transactions : [];
          const tbody = document.getElementById('transactions-table-body');
          tbody.innerHTML = '';
 
@@ -1822,10 +1840,11 @@ document.addEventListener('DOMContentLoaded', function() {
 
          // Expiry alerts
          const expiryAlerts = document.getElementById('expiry-alerts');
-         if (data.expiry_alerts.length === 0) {
+         const expiryList = Array.isArray(data.expiry_alerts) ? data.expiry_alerts : [];
+         if (expiryList.length === 0) {
              expiryAlerts.innerHTML = '<div class="alert alert-success alert-sm"><i class="fas fa-check-circle me-2"></i>No expiring batches</div>';
          } else {
-             expiryAlerts.innerHTML = data.expiry_alerts.map(alert => {
+             expiryAlerts.innerHTML = expiryList.map(alert => {
                  const daysToExpiry = Math.ceil((new Date(alert.expiry_date) - new Date()) / (1000 * 60 * 60 * 24));
                  const alertType = daysToExpiry <= 7 ? 'danger' : daysToExpiry <= 14 ? 'warning' : 'info';
                  return `
@@ -1850,13 +1869,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
          // Warehouse distribution chart
          const warehouseCtx = document.getElementById('warehouse-chart');
-         if (warehouseCtx && data.warehouse_distribution.length > 0) {
+         const warehouseDist = Array.isArray(data.warehouse_distribution) ? data.warehouse_distribution : [];
+         if (warehouseCtx && warehouseDist.length > 0) {
              productDetailsCharts.warehouse = new Chart(warehouseCtx, {
                  type: 'doughnut',
                  data: {
-                     labels: data.warehouse_distribution.map(w => w.warehouse_name),
+                     labels: warehouseDist.map(w => w.warehouse_name),
                      datasets: [{
-                         data: data.warehouse_distribution.map(w => w.total_available),
+                         data: warehouseDist.map(w => w.total_available),
                          backgroundColor: ['#007bff', '#28a745', '#ffc107', '#dc3545', '#6c757d']
                      }]
                  },
@@ -1874,23 +1894,31 @@ document.addEventListener('DOMContentLoaded', function() {
 
          // Stock trend chart
          const trendCtx = document.getElementById('stock-trend-chart');
-         if (trendCtx && data.stock_trends.length > 0) {
+         const stockTrends = Array.isArray(data.stock_trends) ? data.stock_trends : [];
+         if (trendCtx && stockTrends.length > 0) {
              productDetailsCharts.trend = new Chart(trendCtx, {
                  type: 'line',
                  data: {
-                     labels: data.stock_trends.map(t => new Date(t.date).toLocaleDateString()),
+                     labels: stockTrends.map(t => new Date(t.date).toLocaleDateString()),
                      datasets: [{
                          label: 'Received',
-                         data: data.stock_trends.map(t => t.received),
+                         data: stockTrends.map(t => t.received),
                          borderColor: '#28a745',
                          backgroundColor: 'rgba(40, 167, 69, 0.1)',
                          fill: true
                      }, {
                          label: 'Shipped',
-                         data: data.stock_trends.map(t => -t.shipped),
+                         data: stockTrends.map(t => -t.shipped),
                          borderColor: '#dc3545',
                          backgroundColor: 'rgba(220, 53, 69, 0.1)',
                          fill: true
+                     }, {
+                         label: 'On Hand',
+                         data: stockTrends.map(t => t.on_hand || 0),
+                         borderColor: '#007bff',
+                         backgroundColor: 'rgba(0, 123, 255, 0.1)',
+                         borderDash: [5, 5],
+                         fill: false
                      }]
                  },
                  options: {

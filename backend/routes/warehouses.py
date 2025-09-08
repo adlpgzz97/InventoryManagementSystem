@@ -641,6 +641,215 @@ def api_warehouse_hierarchy(warehouse_id):
         }), 500
 
 
+@warehouses_bp.route('/api/<warehouse_id>/areas', methods=['POST'])
+@login_required
+def api_add_area(warehouse_id):
+    """Create a new area with N racks and M levels per rack, generating location codes.
+
+    Code pattern: {WarehouseCode}{AreaNumber}{RackLetter}{LevelNumber} (e.g., D1D3)
+    """
+    try:
+        warehouse = Warehouse.get_by_id(warehouse_id)
+        if not warehouse:
+            return jsonify({'success': False, 'error': 'Warehouse not found'}), 404
+        if not warehouse.code:
+            return jsonify({'success': False, 'error': 'Warehouse code is not set'}), 400
+
+        payload = request.get_json(silent=True) or {}
+        # Optional area_number -> auto-assign lowest available if not provided/invalid
+        raw_area = payload.get('area_number')
+        try:
+            area_number = int(str(raw_area).strip()) if raw_area is not None else None
+        except Exception:
+            area_number = None
+        try:
+            racks_count = int(str(payload.get('racks_count', '1')).strip())
+            levels_per_rack = int(str(payload.get('levels_per_rack', '1')).strip())
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid numeric values'}), 400
+
+        if racks_count <= 0 or levels_per_rack <= 0:
+            return jsonify({'success': False, 'error': 'Values must be positive integers'}), 400
+        if racks_count > 26:
+            return jsonify({'success': False, 'error': 'Max 26 racks (A-Z) supported'}), 400
+
+        wcode = str(warehouse.code).strip().upper()[0]
+
+        # Auto-select lowest available area number if needed
+        if area_number is None or area_number <= 0:
+            rows = execute_query(
+                "SELECT DISTINCT full_code FROM locations WHERE warehouse_id = %s",
+                (warehouse_id,), fetch_all=True
+            ) or []
+            used = set()
+            import re
+            for r in rows:
+                fc = str(r.get('full_code') or '')
+                m = re.match(r"^([A-Z])([0-9]+)([A-Z])([0-9]+)$", fc)
+                if m and m.group(1) == wcode:
+                    try:
+                        used.add(int(m.group(2)))
+                    except Exception:
+                        pass
+            # Find lowest positive not in used
+            cand = 1
+            while cand in used:
+                cand += 1
+            area_number = cand
+
+        created = 0
+        skipped = 0
+        for r_idx in range(racks_count):
+            rack_letter = chr(ord('A') + r_idx)
+            for level in range(1, levels_per_rack + 1):
+                full_code = f"{wcode}{area_number}{rack_letter}{level}"
+                exists = execute_query(
+                    "SELECT 1 FROM locations WHERE warehouse_id = %s AND full_code = %s",
+                    (warehouse_id, full_code),
+                    fetch_one=True
+                )
+                if exists:
+                    skipped += 1
+                    continue
+                execute_query(
+                    "INSERT INTO locations (warehouse_id, full_code) VALUES (%s, %s)",
+                    (warehouse_id, full_code)
+                )
+                created += 1
+
+        return jsonify({'success': True, 'created': created, 'skipped': skipped})
+    except Exception as e:
+        logger.error(f"Error creating new area for warehouse {warehouse_id}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to create locations'}), 500
+
+
+@warehouses_bp.route('/api/<warehouse_id>/areas/<area_number>/racks', methods=['POST'])
+@login_required
+def api_add_rack(warehouse_id, area_number):
+    """Add a new rack to an existing area with N levels."""
+    try:
+        warehouse = Warehouse.get_by_id(warehouse_id)
+        if not warehouse:
+            return jsonify({'success': False, 'error': 'Warehouse not found'}), 404
+        wcode = str(warehouse.code).strip().upper()[0]
+        area_number = int(area_number)
+
+        payload = request.get_json(silent=True) or {}
+        try:
+            levels_per_rack = int(str(payload.get('levels_per_rack', '1')).strip())
+        except Exception:
+            return jsonify({'success': False, 'error': 'Invalid levels value'}), 400
+        if levels_per_rack <= 0:
+            return jsonify({'success': False, 'error': 'Levels must be positive'}), 400
+
+        # Determine next rack letter for this area
+        rows = execute_query(
+            "SELECT full_code FROM locations WHERE warehouse_id = %s",
+            (warehouse_id,), fetch_all=True
+        ) or []
+        import re
+        used_letters = set()
+        for r in rows:
+            fc = str(r.get('full_code') or '')
+            m = re.match(r"^([A-Z])([0-9]+)([A-Z])([0-9]+)$", fc)
+            if m and m.group(1) == wcode and int(m.group(2)) == area_number:
+                used_letters.add(m.group(3))
+        rack_letter = None
+        for i in range(ord('A'), ord('Z') + 1):
+            letter = chr(i)
+            if letter not in used_letters:
+                rack_letter = letter
+                break
+        if not rack_letter:
+            return jsonify({'success': False, 'error': 'No rack letters available'}), 400
+
+        created = 0
+        for level in range(1, levels_per_rack + 1):
+            full_code = f"{wcode}{area_number}{rack_letter}{level}"
+            exists = execute_query(
+                "SELECT 1 FROM locations WHERE warehouse_id = %s AND full_code = %s",
+                (warehouse_id, full_code), fetch_one=True
+            )
+            if exists:
+                continue
+            execute_query(
+                "INSERT INTO locations (warehouse_id, full_code) VALUES (%s, %s)",
+                (warehouse_id, full_code)
+            )
+            created += 1
+
+        return jsonify({'success': True, 'rack_letter': rack_letter, 'created': created})
+    except Exception as e:
+        logger.error(f"Error adding rack in warehouse {warehouse_id} area {area_number}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to add rack'}), 500
+
+
+@warehouses_bp.route('/api/<warehouse_id>/areas/<area_number>/racks/<rack_letter>/levels', methods=['POST', 'DELETE'])
+@login_required
+def api_modify_levels(warehouse_id, area_number, rack_letter):
+    """Increase (POST) or decrease (DELETE) the number of levels by one.
+    On DELETE, remove the highest level only if there are no bins (stock locations) occupying it.
+    """
+    try:
+        warehouse = Warehouse.get_by_id(warehouse_id)
+        if not warehouse:
+            return jsonify({'success': False, 'error': 'Warehouse not found'}), 404
+        wcode = str(warehouse.code).strip().upper()[0]
+        area_number = int(area_number)
+        rack_letter = str(rack_letter).strip().upper()[0]
+
+        import re
+        # Find existing levels for this rack
+        rows = execute_query(
+            "SELECT id, full_code FROM locations WHERE warehouse_id = %s",
+            (warehouse_id,), fetch_all=True
+        ) or []
+        levels = []
+        for r in rows:
+            fc = str(r.get('full_code') or '')
+            m = re.match(r"^([A-Z])([0-9]+)([A-Z])([0-9]+)$", fc)
+            if m and m.group(1) == wcode and int(m.group(2)) == area_number and m.group(3) == rack_letter:
+                try:
+                    levels.append((int(m.group(4)), r.get('id')))
+                except Exception:
+                    pass
+        levels.sort()
+
+        if request.method == 'POST':
+            # Add next level
+            next_level = levels[-1][0] + 1 if levels else 1
+            new_code = f"{wcode}{area_number}{rack_letter}{next_level}"
+            exists = execute_query(
+                "SELECT 1 FROM locations WHERE warehouse_id = %s AND full_code = %s",
+                (warehouse_id, new_code), fetch_one=True
+            )
+            if exists:
+                return jsonify({'success': False, 'error': 'Level already exists'}), 400
+            execute_query(
+                "INSERT INTO locations (warehouse_id, full_code) VALUES (%s, %s)",
+                (warehouse_id, new_code)
+            )
+            return jsonify({'success': True, 'added_level': next_level})
+
+        # DELETE: remove highest level if empty
+        if not levels:
+            return jsonify({'success': False, 'error': 'No levels to remove'}), 400
+        highest_level, loc_id = levels[-1]
+        # Check if any bins exist in this location
+        bins = execute_query(
+            "SELECT id FROM bins WHERE location_id = %s",
+            (loc_id,), fetch_all=True
+        ) or []
+        if bins:
+            return jsonify({'success': False, 'error': 'Highest level occupied by bins; cannot delete'}), 400
+        # Safe to delete location
+        execute_query("DELETE FROM locations WHERE id = %s", (loc_id,))
+        return jsonify({'success': True, 'removed_level': highest_level})
+    except Exception as e:
+        logger.error(f"Error modifying levels in warehouse {warehouse_id} area {area_number} rack {rack_letter}: {e}")
+        return jsonify({'success': False, 'error': 'Failed to modify levels'}), 500
+
+
 @warehouses_bp.route('/api/bin/<bin_code>')
 @login_required
 def get_bin_details(bin_code):
@@ -651,19 +860,22 @@ def get_bin_details(bin_code):
         if not bin_obj:
             return jsonify({'error': 'Bin not found'}), 404
         
-        # Get warehouse information
-        warehouse = bin_obj.get_warehouse()
-        
-        # Get location information
+        # Resolve location and warehouse via foreign keys
         location_code = None
+        warehouse = None
+        warehouse_id = None
         if bin_obj.location_id:
             location_result = execute_query(
-                "SELECT full_code FROM locations WHERE id = %s",
+                "SELECT full_code, warehouse_id FROM locations WHERE id = %s",
                 (bin_obj.location_id,),
                 fetch_one=True
             )
             if location_result:
-                location_code = location_result['full_code']
+                location_code = location_result.get('full_code')
+                warehouse_id = location_result.get('warehouse_id')
+                if warehouse_id:
+                    from backend.models.warehouse import Warehouse as _Warehouse
+                    warehouse = _Warehouse.get_by_id(warehouse_id)
         
         # Get stock items in this bin
         stock_items = StockItem.get_by_bin(bin_obj.id)
@@ -695,7 +907,7 @@ def get_bin_details(bin_code):
             'id': bin_obj.id,
             'code': bin_obj.code,
             'location_code': location_code,
-            'warehouse_id': warehouse.id if warehouse else None,
+            'warehouse_id': warehouse.id if warehouse else warehouse_id,
             'warehouse_name': warehouse.name if warehouse else None,
             'warehouse_code': warehouse.code if warehouse else None,
             'warehouse_address': warehouse.address if warehouse else None,
@@ -733,7 +945,7 @@ def change_bin_location(bin_code):
             return jsonify({'error': 'Bin not found'}), 404
         
         # Get the new location
-        from utils.database import execute_query
+        from backend.utils.database import execute_query
         location_result = execute_query(
             "SELECT id, full_code FROM locations WHERE full_code = %s",
             (new_location_code,),
@@ -780,7 +992,7 @@ def search_locations():
                 'locations': []
             })
         
-        from utils.database import execute_query
+        from backend.utils.database import execute_query
         locations = execute_query(
             """
             SELECT id, full_code, name, description, warehouse_id
@@ -814,41 +1026,57 @@ def delete_rack():
         data = request.get_json()
         area_code = data.get('area_code')
         rack_code = data.get('rack_code')
+        warehouse_id_body = data.get('warehouse_id')
         
         if not area_code or not rack_code:
             return jsonify({'error': 'Area code and rack code are required'}), 400
         
         # Get the warehouse ID from the current request context
         # We need to find locations that match the rack pattern
-        from utils.database import execute_query
+        from backend.utils.database import execute_query
         
-        # Find all locations that belong to this rack
-        # The pattern is: {warehouse_code}{area_number}{rack_letter}{level_number}
-        # We need to find locations where the rack letter matches
-        rack_letter = rack_code[1:]  # Remove 'R' prefix from rack_code (e.g., R01 -> 01)
-        
-        # Convert rack number back to letter (R01 -> A, R02 -> B, etc.)
-        try:
-            rack_number = int(rack_letter)
-            rack_letter_char = chr(ord('A') + rack_number - 1)
-        except (ValueError, OverflowError):
+        # Determine rack letter. Accept formats like 'RB', 'R1', 'B', '01'.
+        import re
+        letters_only = re.sub(r'[^A-Za-z]', '', str(rack_code)).upper()
+        rack_letter_char = None
+        if letters_only:
+            # If starts with 'R' and has more letters, use the letter after R; else use last letter
+            if letters_only.startswith('R') and len(letters_only) > 1:
+                rack_letter_char = letters_only[1]
+            else:
+                rack_letter_char = letters_only[-1]
+        else:
+            digits_only = re.sub(r'[^0-9]', '', str(rack_code))
+            if digits_only:
+                try:
+                    rack_number = int(digits_only)
+                    rack_letter_char = chr(ord('A') + rack_number - 1)
+                except Exception:
+                    rack_letter_char = None
+        if not rack_letter_char or not rack_letter_char.isalpha():
             return jsonify({'error': 'Invalid rack code format'}), 400
         
         # Find locations that match this rack pattern
         # Pattern: {warehouse_code}{area_number}{rack_letter}{level_number}
-        area_number = area_code[1:]  # Remove 'A' prefix (e.g., A1 -> 1)
+        # Extract numeric area number (supports A1, A01, etc.) and normalize (01 -> 1)
+        area_digits = re.sub(r'[^0-9]', '', str(area_code))
+        try:
+            area_number = str(int(area_digits)) if area_digits else '1'
+        except Exception:
+            area_number = '1'
         
         # Build the pattern to match locations
         # We need to find all locations that start with the warehouse code + area + rack letter
-        pattern = f'%{area_number}{rack_letter_char}%'
-        
+        # Use a strict regex: one warehouse letter, exact area digits, exact rack letter, then one or more digits
+        # Constrain by warehouse_id as well for absolute precision
+        regex_pattern = f'^[A-Z]{area_number}{rack_letter_char}[0-9]+$'
         locations_result = execute_query(
             """
             SELECT id, full_code, warehouse_id
             FROM locations 
-            WHERE full_code LIKE %s
+            WHERE warehouse_id = %s AND full_code ~ %s
             """,
-            (pattern,),
+            (warehouse_id_body or None, regex_pattern),
             fetch_all=True
         )
         

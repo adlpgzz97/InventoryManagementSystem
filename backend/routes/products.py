@@ -84,15 +84,20 @@ def products_list():
         # Pre-calculate stock data to avoid N+1 queries
         products = _add_stock_data_to_products(products)
         
+        # Get categories for the filter dropdown
+        from backend.models.category import Category
+        categories = Category.get_all()
+        
         return render_template('products.html',
                              products=products,
+                             categories=categories,
                              search_term=search_term,
                              filter_type=filter_type)
                              
     except Exception as e:
         logger.error(f"Error loading products page: {e}")
         flash('Error loading products. Please try again.', 'error')
-        return render_template('products.html', products=[])
+        return render_template('products.html', products=[], categories=[])
 
 
 @products_bp.route('/add', methods=['GET', 'POST'])
@@ -111,24 +116,27 @@ def add_product():
             weight = float(weight) if weight else None
             picture_url = request.form.get('picture_url', '').strip()
             batch_tracked = request.form.get('batch_tracked') == 'on'
+            category_id = request.form.get('category_id', '').strip() or None
             
             # Create product using service
-            product = ProductService.create_product(
-                name=name,
-                description=description,
-                sku=sku,
-                barcode=barcode,
-                dimensions=dimensions,
-                weight=weight,
-                picture_url=picture_url,
-                batch_tracked=batch_tracked
-            )
+            product_service = ProductService()
+            result = product_service.create_product({
+                'name': name,
+                'description': description,
+                'sku': sku,
+                'barcode': barcode,
+                'dimensions': dimensions,
+                'weight': weight,
+                'picture_url': picture_url,
+                'batch_tracked': batch_tracked,
+                'category_id': category_id
+            })
             
-            if product:
+            if result['success']:
                 flash(f'Product "{name}" created successfully!', 'success')
                 return redirect(url_for('products.products_list'))
             else:
-                flash('Failed to create product. Please try again.', 'error')
+                flash(result.get('error', 'Failed to create product'), 'error')
                 
         except ValueError as e:
             flash(str(e), 'error')
@@ -136,7 +144,11 @@ def add_product():
             logger.error(f"Error creating product: {e}")
             flash('An error occurred while creating the product.', 'error')
     
-    return render_template('add_product_modal.html')
+    # Get categories for the modal
+    from backend.models.category import Category
+    categories = Category.get_all()
+    
+    return render_template('add_product_modal.html', categories=categories)
 
 
 @products_bp.route('/edit/<product_id>', methods=['GET', 'POST'])
@@ -161,25 +173,29 @@ def edit_product(product_id):
                 weight = float(weight) if weight else None
                 picture_url = request.form.get('picture_url', '').strip()
                 batch_tracked = request.form.get('batch_tracked') == 'on'
+                category_id = request.form.get('category_id', '').strip() or None
                 
                 # Update product using service
-                success = ProductService.update_product(
-                    product_id,
-                    name=name,
-                    description=description,
-                    sku=sku,
-                    barcode=barcode,
-                    dimensions=dimensions,
-                    weight=weight,
-                    picture_url=picture_url,
-                    batch_tracked=batch_tracked
-                )
+                product_service = ProductService()
+                result = product_service.update_product(product_id, {
+                    'name': name,
+                    'description': description,
+                    'sku': sku,
+                    'barcode': barcode,
+                    'dimensions': dimensions,
+                    'weight': weight,
+                    'picture_url': picture_url,
+                    'batch_tracked': batch_tracked,
+                    'category_id': category_id
+                })
+                
+                success = result.get('success', False)
                 
                 if success:
                     flash(f'Product "{name}" updated successfully!', 'success')
                     return redirect(url_for('products.products_list'))
                 else:
-                    flash('Failed to update product. Please try again.', 'error')
+                    flash(result.get('error', 'Failed to update product. Please try again.'), 'error')
                     
             except ValueError as e:
                 flash(str(e), 'error')
@@ -187,7 +203,11 @@ def edit_product(product_id):
                 logger.error(f"Error updating product: {e}")
                 flash('An error occurred while updating the product.', 'error')
         
-        return render_template('edit_product_modal.html', product=product)
+        # Get categories for the modal
+        from backend.models.category import Category
+        categories = Category.get_all()
+        
+        return render_template('edit_product_modal.html', product=product, categories=categories)
         
     except Exception as e:
         logger.error(f"Error loading edit product page: {e}")
@@ -245,7 +265,8 @@ def api_product_details(product_id):
     logger.info(f"Product ID type: {type(product_id)}")
     logger.info(f"Product ID value: '{product_id}'")
     try:
-        details = ProductService.get_product_details(product_id)
+        service = ProductService()
+        details = service.get_product_details(product_id)
         
         if 'error' in details:
             return jsonify({

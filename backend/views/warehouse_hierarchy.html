@@ -336,6 +336,9 @@
             <a href="{{ url_for('warehouses.warehouses_list') }}" class="btn btn-sm btn-outline-secondary">
                 <i class="fas fa-arrow-left me-1"></i> Back to Warehouses
             </a>
+            <button class="btn btn-sm btn-success" id="new-area-btn">
+                <i class="fas fa-plus me-1"></i> New Area
+            </button>
             <button class="btn btn-sm btn-outline-primary" onclick="expandAll()">
                 <i class="fas fa-expand me-1"></i> Expand All
             </button>
@@ -399,6 +402,9 @@
                         </small>
                     </div>
                     <div class="d-flex align-items-center">
+                        <button class="btn btn-sm btn-success me-2" onclick="event.stopPropagation(); addRack('{{ area_code }}')">
+                            <i class="fas fa-plus me-1"></i> Add Rack
+                        </button>
                         <span class="stats-badge primary me-2">
                             {{ area.total_bins - area.occupied_bins }} available
                         </span>
@@ -425,12 +431,18 @@
                                      </small>
                                  </div>
                                  <div class="d-flex align-items-center">
+                                     <button class="btn btn-sm btn-outline-success me-2" title="Add Level" onclick="event.stopPropagation(); modifyLevels('{{ area_code }}','{{ rack_code }}','add')">
+                                         <i class="fas fa-plus"></i>
+                                     </button>
+                                     <button class="btn btn-sm btn-outline-danger me-2" title="Remove Level" onclick="event.stopPropagation(); modifyLevels('{{ area_code }}','{{ rack_code }}','remove')">
+                                         <i class="fas fa-minus"></i>
+                                     </button>
                                      <span class="stats-badge {% if rack.occupied_bins > 0 %}success{% else %}warning{% endif %} me-2">
                                          {{ rack.occupied_bins }}/{{ rack.total_bins }}
                                      </span>
                                      {% if rack.total_bins == 0 %}
                                      <button class="btn btn-sm btn-outline-danger me-2" 
-                                             onclick="deleteRack('{{ area_code }}', '{{ rack_code }}', '{{ rack.name }}')"
+                                             onclick="event.stopPropagation(); deleteRack('{{ area_code }}', '{{ rack_code }}', '{{ rack.name }}')"
                                              title="Delete empty rack (no bins)">
                                          <i class="fas fa-trash"></i>
                                      </button>
@@ -449,7 +461,7 @@
                                           <div class="level-header">
                                               <div class="level-title">
                                                   <h6 class="mb-0">{{ level.name }}</h6>
-                                                  <small class="text-muted">{{ level.bins[0].full_code if level.bins else 'No location code' }}</small>
+                                                  <small class="text-muted">{{ level.location_code or (level.bins[0].full_code if level.bins else 'No location code') }}</small>
                                               </div>
                                               <div class="level-stats">
                                                   <span class="stats-badge {% if level.occupied_bins > 0 %}success{% else %}warning{% endif %}">
@@ -648,6 +660,7 @@ async function confirmDeleteRack() {
             },
             credentials: 'same-origin',
             body: JSON.stringify({
+                warehouse_id: '{{ warehouse.id }}',
                 area_code: areaCode,
                 rack_code: rackCode
             })
@@ -722,6 +735,85 @@ function showSuccessMessage(message) {
      
      // Add event listener for delete rack confirmation
      document.getElementById('confirmDeleteRack').addEventListener('click', confirmDeleteRack);
+
+    // New Area creation flow
+    const newAreaBtn = document.getElementById('new-area-btn');
+    if (newAreaBtn) {
+        newAreaBtn.addEventListener('click', async function() {
+            try {
+                const racksCountStr = prompt('How many racks in this area? (max 26):', '4');
+                if (racksCountStr === null) return;
+                const levelsPerRackStr = prompt('How many levels per rack?', '3');
+                if (levelsPerRackStr === null) return;
+
+                const racks_count = parseInt(racksCountStr, 10);
+                const levels_per_rack = parseInt(levelsPerRackStr, 10);
+
+                if (!(racks_count > 0 && levels_per_rack > 0)) {
+                    alert('All values must be positive integers.');
+                    return;
+                }
+
+                const res = await fetch(`/warehouses/api/{{ warehouse.id }}/areas`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ racks_count, levels_per_rack })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) {
+                    alert('Error creating area: ' + (data.error || res.statusText));
+                    return;
+                }
+                alert(`Created ${data.created} locations${data.skipped ? `, skipped ${data.skipped} existing` : ''}.`);
+                window.location.reload();
+            } catch (e) {
+                console.error('New area error:', e);
+                alert('Failed to create area.');
+            }
+        });
+    }
+
+    // Add a rack to an area
+    window.addRack = async function(areaCode) {
+        try {
+            const levelsStr = prompt('How many levels for this new rack?', '3');
+            if (levelsStr === null) return;
+            const levels_per_rack = parseInt(levelsStr, 10);
+            if (!(levels_per_rack > 0)) { alert('Invalid levels'); return; }
+
+            // areaCode like A01, extract number
+            const area_number = parseInt(String(areaCode).replace(/[^0-9]/g, ''), 10) || 1;
+            const res = await fetch(`/warehouses/api/{{ warehouse.id }}/areas/${area_number}/racks`, {
+                method: 'POST', headers: {'Content-Type':'application/json'}, credentials:'same-origin',
+                body: JSON.stringify({ levels_per_rack })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) { alert('Error adding rack: ' + (data.error || res.statusText)); return; }
+            alert(`Added rack ${data.rack_letter} with ${levels_per_rack} levels.`);
+            window.location.reload();
+        } catch (e) { console.error(e); alert('Failed to add rack'); }
+    }
+
+    // Modify levels (+/-)
+    window.modifyLevels = async function(areaCode, rackCode, action) {
+        try {
+            const area_number = parseInt(String(areaCode).replace(/[^0-9]/g, ''), 10) || 1;
+            // rackCode is like "RB", "RC", "RD". Extract the actual rack letter, not the leading 'R'.
+            const lettersOnly = String(rackCode).replace(/[^A-Z]/g, '');
+            let rack_letter = 'A';
+            if (lettersOnly) {
+                rack_letter = lettersOnly.startsWith('R') && lettersOnly.length > 1 ? lettersOnly[1] : lettersOnly.slice(-1);
+            }
+            const method = action === 'remove' ? 'DELETE' : 'POST';
+            const res = await fetch(`/warehouses/api/{{ warehouse.id }}/areas/${area_number}/racks/${rack_letter}/levels`, {
+                method, credentials:'same-origin'
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) { alert('Error: ' + (data.error || res.statusText)); return; }
+            window.location.reload();
+        } catch (e) { console.error(e); alert('Failed to modify levels'); }
+    }
  });
 </script>
 {% endblock %}

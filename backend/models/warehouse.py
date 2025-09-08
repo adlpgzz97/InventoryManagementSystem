@@ -5,6 +5,7 @@ Pure data container with basic CRUD operations
 
 from typing import Optional, Dict, Any, List
 from datetime import datetime
+import re
 import logging
 
 from backend.models.base_model import BaseModel
@@ -88,6 +89,22 @@ class Warehouse(BaseModel):
     def create(cls, name: str, address: str = None, code: str = None) -> Optional['Warehouse']:
         """Create a new warehouse - basic CRUD operation"""
         try:
+            # Auto-generate next alphabetical code if not provided
+            if not code:
+                existing = execute_query(
+                    "SELECT code FROM warehouses WHERE code IS NOT NULL",
+                    fetch_all=True
+                ) or []
+                used = {str(row.get('code') or '').strip().upper() for row in existing}
+                # Find next single letter A..Z not used
+                code_candidate = None
+                for i in range(ord('A'), ord('Z') + 1):
+                    letter = chr(i)
+                    if letter not in used:
+                        code_candidate = letter
+                        break
+                code = code_candidate or None
+
             result = execute_query(
                 """
                 INSERT INTO warehouses (name, address, code)
@@ -150,6 +167,196 @@ class Warehouse(BaseModel):
         except Exception as e:
             logger.error(f"Error deleting warehouse {self.id}: {e}")
             return False
+
+    def get_hierarchical_locations(self) -> Dict[str, Any]:
+        """Build hierarchical structure (areas → racks → levels → bins) for this warehouse.
+
+        Heuristics:
+        - Parse Location.full_code to derive (area, rack, level) codes using separators ("-", ":", " ").
+        - Prefer tokens starting with A/R/L; otherwise fall back to first/second/third tokens.
+        - If parsing fails, fall back to defaults (A, R1, L1) for that location only.
+        - Aggregate counts for total/occupied bins at each level.
+        """
+        try:
+            # Local imports to avoid circular dependencies
+            from backend.models.warehouse import Location, Bin
+            from backend.models.stock import StockItem
+
+            # Load all locations for this warehouse
+            locations = Location.get_by_warehouse(self.id)
+
+            # Prepare containers
+            total_locations = len(locations)
+            total_bins = 0
+            occupied_bins = 0
+
+            areas: Dict[str, Any] = {}
+
+            def parse_location(full_code: str) -> Dict[str, str]:
+                """Derive area, rack, level codes from a location full_code using heuristics."""
+                default = {'area': 'A01', 'rack': 'RA', 'level': 'L01', 'area_name': 'Area 1', 'rack_name': 'Rack A', 'level_name': 'Level 1'}
+                if not full_code:
+                    return default
+                code = str(full_code).strip()
+                # Specific pattern: WarehouseLetter AreaNumber RackLetter LevelNumber e.g., C1B3
+                m = re.match(r"^([A-Z])([0-9]+)([A-Z])([0-9]+)$", code.upper())
+                if m:
+                    area_num = int(m.group(2))
+                    rack_letter = m.group(3)
+                    level_num = int(m.group(4))
+                    return {
+                        'area': f"A{area_num:02d}",
+                        'rack': f"R{rack_letter}",
+                        'level': f"L{level_num:02d}",
+                        'area_name': f"Area {area_num}",
+                        'rack_name': f"Rack {rack_letter}",
+                        'level_name': f"Level {level_num}"
+                    }
+                # Split by non-alphanumeric separators
+                tokens = [t for t in re.split(r"[^A-Za-z0-9]+", code.upper()) if t]
+                if not tokens:
+                    return default
+
+                area = None
+                rack = None
+                level = None
+
+                # Try to find explicit A/R/L prefixed tokens
+                for t in tokens:
+                    if not area and t.startswith('A') and len(t) > 1:
+                        area = t
+                    if not rack and t.startswith('R') and len(t) > 1:
+                        rack = t
+                    if not level and t.startswith('L') and len(t) > 1:
+                        level = t
+
+                # Fallbacks by position
+                if not area:
+                    area = tokens[0] if tokens else 'A1'
+                    if not area.startswith('A'):
+                        area = f"A{area}"
+                if not rack:
+                    cand = tokens[1] if len(tokens) > 1 else 'A'
+                    rack = cand if cand.startswith('R') else f"R{cand}"
+                if not level:
+                    cand = tokens[2] if len(tokens) > 2 else '1'
+                    level = cand if cand.startswith('L') else f"L{cand}"
+
+                # Extract numeric/letter parts for friendly names and pad
+                area_num = int(re.sub(r"[^0-9]", "", area) or 1)
+                level_num = int(re.sub(r"[^0-9]", "", level) or 1)
+                rack_letter = re.sub(r"[^A-Z]", "", rack) or 'A'
+
+                return {
+                    'area': f"A{area_num:02d}",
+                    'rack': f"R{rack_letter}",
+                    'level': f"L{level_num:02d}",
+                    'area_name': f"Area {area_num}",
+                    'rack_name': f"Rack {rack_letter}",
+                    'level_name': f"Level {level_num}"
+                }
+
+            # Populate bins per location
+            for loc in locations:
+                parts = parse_location(loc.full_code)
+                area_code = parts['area']
+                rack_code = parts['rack']
+                level_code = parts['level']
+
+                if area_code not in areas:
+                    areas[area_code] = {
+                        'name': parts.get('area_name', area_code),
+                        'total_locations': 0,
+                        'total_bins': 0,
+                        'occupied_bins': 0,
+                        'racks': {}
+                    }
+                area_ref = areas[area_code]
+                area_ref['total_locations'] += 1
+
+                if rack_code not in area_ref['racks']:
+                    area_ref['racks'][rack_code] = {
+                        'name': parts.get('rack_name', rack_code),
+                        'total_locations': 0,
+                        'total_bins': 0,
+                        'occupied_bins': 0,
+                        'levels': {}
+                    }
+                rack_ref = area_ref['racks'][rack_code]
+                rack_ref['total_locations'] += 1
+
+                if level_code not in rack_ref['levels']:
+                    rack_ref['levels'][level_code] = {
+                        'name': parts.get('level_name', level_code),
+                        'total_bins': 0,
+                        'occupied_bins': 0,
+                        'bins': [],
+                        'location_code': loc.full_code or ''
+                    }
+                level_ref = rack_ref['levels'][level_code]
+                # Ensure location_code is set even if no bins exist
+                if not level_ref.get('location_code'):
+                    level_ref['location_code'] = loc.full_code or ''
+
+                # Fetch bins for this location
+                bins = Bin.get_by_location(loc.id)
+                for b in bins:
+                    # Fetch stock items to determine occupancy and counts
+                    stock_items = StockItem.get_by_bin(b.id)
+                    stock_count = len(stock_items)
+                    total_qty = 0
+                    for si in stock_items:
+                        try:
+                            on_hand = getattr(si, 'on_hand', 0) or 0
+                        except Exception:
+                            on_hand = 0
+                        total_qty += on_hand
+
+                    is_occupied = stock_count > 0
+
+                    bin_entry = {
+                        'code': b.code,
+                        'full_code': loc.full_code or b.code,
+                        'occupied': is_occupied,
+                        'stock_count': stock_count,
+                        'total_stock_quantity': total_qty,
+                        'is_empty_location': False
+                    }
+
+                    level_ref['bins'].append(bin_entry)
+                    level_ref['total_bins'] += 1
+                    if is_occupied:
+                        level_ref['occupied_bins'] += 1
+
+                    # Update aggregates
+                    total_bins += 1
+                    if is_occupied:
+                        occupied_bins += 1
+                    rack_ref['total_bins'] += 1
+                    if is_occupied:
+                        rack_ref['occupied_bins'] += 1
+                    area_ref['total_bins'] += 1
+                    if is_occupied:
+                        area_ref['occupied_bins'] += 1
+
+            hierarchical_data = {
+                'total_locations': total_locations,
+                'total_bins': total_bins,
+                'occupied_bins': occupied_bins,
+                'areas': areas
+            }
+
+            return hierarchical_data
+
+        except Exception as e:
+            logger.error(f"Error building hierarchical locations for warehouse {self.id}: {e}")
+            # Return a safe empty structure so the template can render an empty state
+            return {
+                'total_locations': 0,
+                'total_bins': 0,
+                'occupied_bins': 0,
+                'areas': {}
+            }
 
 
 class Location:
