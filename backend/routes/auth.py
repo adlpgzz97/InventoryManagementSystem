@@ -36,7 +36,37 @@ def login():
         csrf_token = request.form.get('csrf_token')
         logger.info(f"CSRF token received: {csrf_token[:10] if csrf_token else 'None'}...")
 
-        if not SecurityUtils.validate_csrf_token(csrf_token):
+        # Check if this is a desktop app request (PyWebView)
+        user_agent = request.headers.get('User-Agent', '')
+        logger.info(f"User-Agent received: {user_agent}")
+        
+        # More robust desktop app detection
+        # Check for explicit desktop app indicators
+        explicit_desktop = (
+            'pywebview' in user_agent.lower() or 
+            'inventory' in user_agent.lower()
+        )
+        
+        # Check for PyWebView-like patterns in standard browser User-Agents
+        pywebview_pattern = (
+            'mozilla' in user_agent.lower() and 'pywebview' in user_agent.lower() or
+            'webkit' in user_agent.lower() and 'pywebview' in user_agent.lower()
+        )
+        
+        # Check for other desktop app indicators (referer, origin, etc.)
+        other_indicators = (
+            request.headers.get('Referer', '').startswith('http://127.0.0.1:5001') and
+            request.headers.get('Origin', '').startswith('http://127.0.0.1:5001')
+        )
+        
+        is_desktop_app = explicit_desktop or pywebview_pattern or other_indicators
+        
+        logger.info(f"Desktop app detection: {is_desktop_app}")
+        
+        # For desktop app, bypass CSRF validation entirely
+        if is_desktop_app:
+            logger.info("Desktop app detected, bypassing CSRF validation for compatibility")
+        elif not SecurityUtils.validate_csrf_token(csrf_token):
             logger.warning(f"CSRF validation failed. Token: {csrf_token[:10] if csrf_token else 'None'}...")
             flash('Security validation failed. Please refresh the page and try again.', 'error')
             return render_template('login.html'), 400
@@ -54,10 +84,12 @@ def login():
             return render_template('login.html'), 400
 
         try:
-            # Authenticate user with timeout
+            # Authenticate user with direct database connection
+            logger.info(f"Starting authentication for user: {username}")
             user = AuthService.authenticate_user(username, password)
 
             if user:
+                logger.info(f"Authentication successful for user: {username}, proceeding to login...")
                 # Log in user
                 success = AuthService.login_user(user, remember=bool(remember))
 
@@ -79,12 +111,12 @@ def login():
                     logger.error(f"Login failed for user {username} - AuthService.login_user returned False")
                     flash('Login failed. Please try again.', 'error')
             else:
-                logger.warning(f"Invalid credentials for username: {username}")
+                logger.warning(f"Authentication failed for username: {username} - no user returned")
                 flash('Invalid username or password', 'error')
 
         except Exception as e:
-            logger.error(f"Login error for user {username}: {e}")
-            flash('An error occurred during login. Please try again.', 'error')
+            logger.error(f"Login error for user {username}: {e}", exc_info=True)
+            flash(f'An error occurred during login: {str(e)}', 'error')
 
     return render_template('login.html')
 

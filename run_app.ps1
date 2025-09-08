@@ -21,6 +21,7 @@ if (-Not (Test-Path "venv\Scripts\Activate.ps1")) {
 & "venv\Scripts\Activate.ps1"
 Write-Host "Ensure PostgreSQL is running before launching" -ForegroundColor Yellow
 Write-Host "Starting Desktop Application..." -ForegroundColor Green
+python -m backend.app
 python main.py
 
 Read-Host "Press Enter to exit"

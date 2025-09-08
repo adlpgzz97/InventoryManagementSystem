@@ -65,35 +65,61 @@ class User(UserMixin, BaseModel):
     def authenticate(cls, username: str, password: str) -> Optional['User']:
         """Authenticate user with username and password"""
         try:
-            # Use timeout version to prevent freezing
-            from backend.utils.database import execute_query_with_timeout
-
+            # Use direct database connection for authentication to avoid pool issues
+            import psycopg2
+            from backend.config import config
+            
             logger.info(f"Authenticating user: {username}")
 
-            result = execute_query_with_timeout(
-                "SELECT id, username, password_hash, role FROM users WHERE username = %s",
-                (username,),
-                fetch_one=True,
-                timeout=10  # Increased timeout for login
+            # Create a direct connection for authentication
+            conn = psycopg2.connect(
+                host=config.DB_HOST,
+                port=config.DB_PORT,
+                database=config.DB_NAME,
+                user=config.DB_USER,
+                password=config.DB_PASSWORD,
+                connect_timeout=5,  # 5 second connection timeout
+                options='-c statement_timeout=10000'  # 10 second query timeout
             )
+            
+            try:
+                with conn.cursor() as cursor:
+                    cursor.execute(
+                        "SELECT id, username, password_hash, role FROM users WHERE username = %s",
+                        (username,)
+                    )
+                    result = cursor.fetchone()
+                    
+                    if result:
+                        # Convert to dict format
+                        result_dict = {
+                            'id': str(result[0]),
+                            'username': result[1],
+                            'password_hash': result[2],
+                            'role': result[3]
+                        }
+                        
+                        logger.info(f"User {username} found, verifying password...")
+                        
+                        # Verify password using bcrypt
+                        password_verified = bcrypt.checkpw(
+                            password.encode('utf-8'),
+                            result_dict['password_hash'].encode('utf-8')
+                        )
 
-            if result and result['password_hash']:
-                logger.info(f"User {username} found, verifying password...")
-                # Verify password using bcrypt
-                password_verified = bcrypt.checkpw(
-                    password.encode('utf-8'),
-                    result['password_hash'].encode('utf-8')
-                )
-
-                if password_verified:
-                    logger.info(f"User {username} authenticated successfully")
-                    return cls.from_dict(result)
-                else:
-                    logger.warning(f"Invalid password for user {username}")
-                    return None
-            else:
-                logger.warning(f"User {username} not found")
-                return None
+                        if password_verified:
+                            logger.info(f"User {username} authenticated successfully")
+                            return cls.from_dict(result_dict)
+                        else:
+                            logger.warning(f"Invalid password for user {username}")
+                            return None
+                    else:
+                        logger.warning(f"User {username} not found")
+                        return None
+                        
+            finally:
+                conn.close()
+                logger.debug(f"Authentication connection closed for user: {username}")
 
         except Exception as e:
             logger.error(f"Error during authentication for {username}: {e}")

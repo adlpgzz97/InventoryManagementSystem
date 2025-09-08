@@ -26,10 +26,23 @@ class SecurityUtils:
     
     @staticmethod
     def validate_csrf_token(token: str) -> bool:
-        """Validate CSRF token"""
+        """Validate CSRF token with desktop app compatibility"""
         if not token:
+            logger.warning("CSRF token is empty")
             return False
-        return token == session.get('csrf_token')
+        
+        session_token = session.get('csrf_token')
+        if not session_token:
+            logger.warning("No CSRF token in session")
+            return False
+        
+        # Check if tokens match
+        is_valid = token == session_token
+        
+        if not is_valid:
+            logger.warning(f"CSRF token mismatch. Received: {token[:10]}..., Session: {session_token[:10]}...")
+        
+        return is_valid
     
     @staticmethod
     def sanitize_input(input_data: str) -> str:

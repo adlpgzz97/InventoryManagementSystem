@@ -43,8 +43,11 @@ def get_connection_pool():
             db_config_with_timeouts = {
                 **db_config,
                 'connect_timeout': 10,  # 10 seconds connection timeout
-                'options': '-c statement_timeout=30000',  # 30 seconds query timeout
-                'application_name': 'inventory_app'
+                'options': '-c statement_timeout=30000 -c lock_timeout=10000',  # 30s query, 10s lock timeout
+                'application_name': 'inventory_app',
+                'keepalives_idle': 30,  # Send keepalive after 30s of inactivity
+                'keepalives_interval': 10,  # Send keepalive every 10s
+                'keepalives_count': 3  # Allow 3 failed keepalives before dropping
             }
             
             _connection_pool = psycopg2.pool.SimpleConnectionPool(
@@ -66,9 +69,20 @@ def get_db_connection():
     """Get database connection from pool"""
     try:
         pool = get_connection_pool()
-        connection = pool.getconn()
+        
+        # Add timeout for getting connection from pool
+        import time
+        start_time = time.time()
+        connection = None
+        
+        while time.time() - start_time < 10:  # 10 second timeout
+            connection = pool.getconn()
+            if connection is not None:
+                break
+            time.sleep(0.1)  # Small delay before retry
+        
         if connection is None:
-            raise ConnectionError("Failed to get connection from pool")
+            raise ConnectionError("Failed to get connection from pool within timeout")
         
         # Check connection health
         if not is_connection_healthy(connection):
