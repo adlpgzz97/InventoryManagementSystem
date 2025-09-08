@@ -67,8 +67,15 @@ class BaseService(ABC):
     
     def sanitize_input(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Sanitize input data to prevent injection attacks"""
-        from backend.utils.security import SecurityUtils
-        return SecurityUtils.sanitize_dict(data)
+        from backend.utils.simple_security import SimpleSecurityUtils
+        # Simple sanitization for local use
+        sanitized = {}
+        for key, value in data.items():
+            if isinstance(value, str):
+                sanitized[key] = SimpleSecurityUtils.sanitize_input(value)
+            else:
+                sanitized[key] = value
+        return sanitized
     
     def handle_database_error(self, operation: str, error: Exception) -> None:
         """Handle database errors consistently"""

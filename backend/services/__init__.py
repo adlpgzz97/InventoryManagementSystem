@@ -4,7 +4,7 @@ Provides business logic layer for the application
 """
 
 from .base_service import BaseService, ServiceError, ValidationError, NotFoundError
-from .auth_service import AuthService
+from .simple_auth_service import SimpleAuthService
 from .dashboard_service import DashboardService
 from .product_service import ProductService
 from .stock_service import StockService
@@ -18,7 +18,7 @@ __all__ = [
     'ServiceError', 
     'ValidationError',
     'NotFoundError',
-    'AuthService',
+    'SimpleAuthService',
     'DashboardService',
     'ProductService',
     'StockService',

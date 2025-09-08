@@ -386,7 +386,7 @@ class TestAuthRoutes:
         assert response.status_code == 200
         assert b'Login' in response.data
     
-    @patch('backend.routes.auth.AuthService')
+    @patch('backend.routes.simple_auth.SimpleAuthService')
     def test_login_post_success(self, mock_service_class, client):
         """Test successful login POST request."""
         mock_service = MagicMock()
@@ -410,7 +410,7 @@ class TestAuthRoutes:
         assert data['success'] is True
         assert data['data']['username'] == 'testuser'
     
-    @patch('backend.routes.auth.AuthService')
+    @patch('backend.routes.simple_auth.SimpleAuthService')
     def test_login_post_invalid_credentials(self, mock_service_class, client):
         """Test login POST request with invalid credentials."""
         mock_service = MagicMock()

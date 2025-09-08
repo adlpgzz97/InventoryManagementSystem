@@ -16,8 +16,8 @@ from backend.config import config
 from backend.models.user import User
 
 # Import route blueprints
+from backend.routes.simple_auth import auth_bp
 from backend.routes import (
-    auth_bp, 
     dashboard_bp, 
     products_bp, 
     stock_bp, 
@@ -58,10 +58,11 @@ def create_app(config_class=None):
     
     # Configure session for desktop app compatibility
     app.config['SESSION_COOKIE_SECURE'] = False  # Allow HTTP in desktop app
-    app.config['SESSION_COOKIE_HTTPONLY'] = True
+    app.config['SESSION_COOKIE_HTTPONLY'] = False  # Allow JavaScript access for PyWebView
     app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
     app.config['SESSION_COOKIE_DOMAIN'] = None  # Allow localhost
     app.config['SESSION_COOKIE_PATH'] = '/'
+    app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours
     
     @login_manager.user_loader
     def load_user(user_id):
@@ -84,13 +85,7 @@ def create_app(config_class=None):
     # Register global context processors
     register_context_processors(app)
     
-    # Initialize database connection pool at startup to prevent login delays
-    try:
-        from backend.utils.database import get_connection_pool
-        get_connection_pool()
-        logger.info("Database connection pool initialized at startup")
-    except Exception as e:
-        logger.warning(f"Failed to initialize database connection pool at startup: {e}")
+    # Database connections will be created on-demand for faster startup
     
     logger.info("Flask application created successfully")
     return app
@@ -172,25 +167,16 @@ def register_middleware(app):
     
     @app.before_request
     def before_request():
-        """Execute before each request"""
-        # Log request information
-        logger.info(f"Request: {request.method} {request.url}")
-        
+        """Execute before each request - simplified for faster startup"""
         # Add request start time for performance monitoring
         request.start_time = datetime.now()
     
     @app.after_request
     def after_request(response):
-        """Execute after each request"""
-        # Calculate request duration
-        if hasattr(request, 'start_time'):
-            duration = (datetime.now() - request.start_time).total_seconds()
-            logger.info(f"Response: {response.status_code} - Duration: {duration:.3f}s")
-        
-        # Add security headers using security utilities
-        from backend.utils.security import SecurityUtils
-        response = SecurityUtils.add_security_headers(response)
-        
+        """Execute after each request - simplified"""
+        # Add basic security headers
+        from backend.utils.simple_security import SimpleSecurityUtils
+        response = SimpleSecurityUtils.add_security_headers(response)
         return response
     
     logger.info("Middleware registered successfully")
@@ -226,9 +212,9 @@ def register_context_processors(app):
     @app.context_processor
     def inject_csrf_token():
         """Inject CSRF token into all templates"""
-        from backend.utils.security import SecurityUtils
+        from backend.utils.simple_security import SimpleSecurityUtils
         return {
-            'csrf_token': SecurityUtils.generate_csrf_token()
+            'csrf_token': SimpleSecurityUtils.generate_csrf_token()
         }
     
     logger.info("Context processors registered successfully")
@@ -240,8 +226,12 @@ app = create_app()
 # Root route redirect
 @app.route('/')
 def index():
-    """Root route - redirect to dashboard"""
-    return redirect(url_for('dashboard.dashboard'))
+    """Root route - redirect to login for simple authentication"""
+    from flask_login import current_user
+    if current_user.is_authenticated:
+        return redirect(url_for('dashboard.dashboard'))
+    else:
+        return redirect(url_for('auth.login'))
 
 
 @app.route('/api/cors-preflight', methods=['OPTIONS'])
