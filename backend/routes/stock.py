@@ -54,7 +54,7 @@ def stock_list():
         elif filter_type == 'low_stock':
             # For low stock filter, get all items and filter
             stock_items = StockItem.get_all_with_locations()
-            stock_items = [item for item in stock_items if item['available_stock'] <= 5]
+            stock_items = [item for item in stock_items if (item['on_hand'] - item['qty_reserved']) <= 5]
         elif filter_type == 'expired':
             # For expired filter, get all items and filter
             stock_items = StockItem.get_all_with_locations()

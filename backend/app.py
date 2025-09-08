@@ -59,10 +59,11 @@ def create_app(config_class=None):
     # Configure session for desktop app compatibility
     app.config['SESSION_COOKIE_SECURE'] = False  # Allow HTTP in desktop app
     app.config['SESSION_COOKIE_HTTPONLY'] = False  # Allow JavaScript access for PyWebView
-    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+    app.config['SESSION_COOKIE_SAMESITE'] = None  # Disable SameSite for PyWebView
     app.config['SESSION_COOKIE_DOMAIN'] = None  # Allow localhost
     app.config['SESSION_COOKIE_PATH'] = '/'
     app.config['PERMANENT_SESSION_LIFETIME'] = 86400  # 24 hours
+    app.config['SESSION_COOKIE_NAME'] = 'inventory_session'  # Custom session name
     
     @login_manager.user_loader
     def load_user(user_id):
@@ -177,6 +178,12 @@ def register_middleware(app):
         # Add basic security headers
         from backend.utils.simple_security import SimpleSecurityUtils
         response = SimpleSecurityUtils.add_security_headers(response)
+        
+        # Add cache-busting headers for PyWebView compatibility
+        response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '0'
+        
         return response
     
     logger.info("Middleware registered successfully")

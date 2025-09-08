@@ -155,17 +155,13 @@ class Warehouse(BaseModel):
 class Location:
     """Location model - data container only"""
     
-    def __init__(self, id: str, warehouse_id: str, code: str, name: str, 
-                 description: str = None, full_code: str = None):
+    def __init__(self, id: str, warehouse_id: str, full_code: str = None):
         self.id = id
         self.warehouse_id = warehouse_id
-        self.code = code
-        self.name = name
-        self.description = description
         self.full_code = full_code
     
     def __repr__(self):
-        return f"<Location {self.code} (ID: {self.id})>"
+        return f"<Location {self.full_code} (ID: {self.id})>"
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Location':
@@ -173,9 +169,6 @@ class Location:
         return cls(
             id=str(data['id']),
             warehouse_id=str(data['warehouse_id']),
-            code=data['code'],
-            name=data['name'],
-            description=data.get('description'),
             full_code=data.get('full_code')
         )
     
@@ -184,9 +177,6 @@ class Location:
         return {
             'id': self.id,
             'warehouse_id': self.warehouse_id,
-            'code': self.code,
-            'name': self.name,
-            'description': self.description,
             'full_code': self.full_code
         }
     
@@ -196,7 +186,7 @@ class Location:
         try:
             result = execute_query(
                 """
-                SELECT id, warehouse_id, code, name, description, full_code
+                SELECT id, warehouse_id, full_code
                 FROM locations WHERE id = %s
                 """,
                 (location_id,),
@@ -217,8 +207,8 @@ class Location:
         try:
             result = execute_query(
                 """
-                SELECT id, warehouse_id, code, name, description, full_code
-                FROM locations WHERE code = %s
+                SELECT id, warehouse_id, full_code
+                FROM locations WHERE full_code = %s
                 """,
                 (location_code,),
                 fetch_one=True
@@ -238,10 +228,10 @@ class Location:
         try:
             results = execute_query(
                 """
-                SELECT id, warehouse_id, code, name, description, full_code
+                SELECT id, warehouse_id, full_code
                 FROM locations 
                 WHERE warehouse_id = %s
-                ORDER BY code
+                ORDER BY full_code
                 """,
                 (warehouse_id,),
                 fetch_all=True
@@ -261,12 +251,12 @@ class Location:
             
             results = execute_query(
                 """
-                SELECT id, warehouse_id, code, name, description, full_code
+                SELECT id, warehouse_id, full_code
                 FROM locations
-                WHERE code ILIKE %s OR name ILIKE %s
-                ORDER BY code
+                WHERE full_code ILIKE %s
+                ORDER BY full_code
                 """,
-                (search_pattern, search_pattern),
+                (search_pattern,),
                 fetch_all=True
             )
             
@@ -348,13 +338,12 @@ class Location:
 class Bin:
     """Bin model - data container only"""
     
-    def __init__(self, id: str, location_id: str, code: str, name: str, 
-                 description: str = None):
+    def __init__(self, id: str, location_id: str, code: str, created_at=None, updated_at=None):
         self.id = id
         self.location_id = location_id
         self.code = code
-        self.name = name
-        self.description = description
+        self.created_at = created_at
+        self.updated_at = updated_at
     
     def __repr__(self):
         return f"<Bin {self.code} (ID: {self.id})>"
@@ -366,8 +355,8 @@ class Bin:
             id=str(data['id']),
             location_id=str(data['location_id']),
             code=data['code'],
-            name=data['name'],
-            description=data.get('description')
+            created_at=data.get('created_at'),
+            updated_at=data.get('updated_at')
         )
     
     def to_dict(self) -> Dict[str, Any]:
@@ -376,8 +365,8 @@ class Bin:
             'id': self.id,
             'location_id': self.location_id,
             'code': self.code,
-            'name': self.name,
-            'description': self.description
+            'created_at': self.created_at,
+            'updated_at': self.updated_at
         }
     
     @classmethod
@@ -386,7 +375,7 @@ class Bin:
         try:
             result = execute_query(
                 """
-                SELECT id, location_id, code, name, description
+                SELECT id, location_id, code, created_at, updated_at
                 FROM bins WHERE id = %s
                 """,
                 (bin_id,),
@@ -407,7 +396,7 @@ class Bin:
         try:
             result = execute_query(
                 """
-                SELECT id, location_id, code, name, description
+                SELECT id, location_id, code, created_at, updated_at
                 FROM bins WHERE code = %s
                 """,
                 (bin_code,),
@@ -428,7 +417,7 @@ class Bin:
         try:
             results = execute_query(
                 """
-                SELECT id, location_id, code, name, description
+                SELECT id, location_id, code, created_at, updated_at
                 FROM bins 
                 WHERE location_id = %s
                 ORDER BY code
@@ -449,7 +438,7 @@ class Bin:
         try:
             results = execute_query(
                 """
-                SELECT id, location_id, code, name, description
+                SELECT id, location_id, code, created_at, updated_at
                 FROM bins 
                 ORDER BY code
                 """,
@@ -470,12 +459,12 @@ class Bin:
             
             results = execute_query(
                 """
-                SELECT id, location_id, code, name, description
+                SELECT id, location_id, code, created_at, updated_at
                 FROM bins
-                WHERE code ILIKE %s OR name ILIKE %s
+                WHERE code ILIKE %s
                 ORDER BY code
                 """,
-                (search_pattern, search_pattern),
+                (search_pattern,),
                 fetch_all=True
             )
             
@@ -486,17 +475,16 @@ class Bin:
             return []
     
     @classmethod
-    def create(cls, location_id: str, code: str, name: str, 
-               description: str = None) -> Optional['Bin']:
+    def create(cls, location_id: str, code: str) -> Optional['Bin']:
         """Create a new bin - basic CRUD operation"""
         try:
             result = execute_query(
                 """
-                INSERT INTO bins (location_id, code, name, description)
-                VALUES (%s, %s, %s, %s)
-                RETURNING id, location_id, code, name, description
+                INSERT INTO bins (location_id, code)
+                VALUES (%s, %s)
+                RETURNING id, location_id, code, created_at, updated_at
                 """,
-                (location_id, code, name, description),
+                (location_id, code),
                 fetch_one=True
             )
             

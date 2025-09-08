@@ -114,12 +114,14 @@
                         <th class="sortable" data-column="barcode" data-type="text">
                             Barcode <i class="fas fa-sort text-muted"></i>
                         </th>
+                        <!-- Temporarily disabled to fix performance issues
                         <th class="sortable" data-column="available_stock" data-type="number">
                             Available Stock <i class="fas fa-sort text-muted"></i>
                         </th>
                         <th class="sortable" data-column="total_stock" data-type="number">
                             Total Stock <i class="fas fa-sort text-muted"></i>
                         </th>
+                        -->
                         <th class="sortable" data-column="batch_tracking" data-type="text">
                             Batch Tracking <i class="fas fa-sort text-muted"></i>
                         </th>
@@ -136,8 +138,10 @@
                         data-sku="{{ product.sku|lower }}" 
                         data-name="{{ product.name|lower }}" 
                         data-description="{{ (product.description or '')|lower }}" 
+                        <!-- Temporarily disabled to fix performance issues
                         data-available-stock="{{ product.available_stock }}"
                         data-total-stock="{{ product.total_stock }}"
+                        -->
                         data-category="{% if 'widget' in product.name|lower %}widget{% elif 'gadget' in product.name|lower %}gadget{% elif 'tool' in product.name|lower %}tool{% else %}other{% endif %}">
                         <td>
                             <div class="form-check">
@@ -161,6 +165,7 @@
                             {% endif %}
                         </td>
                         <td>{{ product.barcode or 'N/A' }}</td>
+                        <!-- Temporarily disabled to fix performance issues
                         <td>
                             <span class="badge {% if product.available_stock > 0 %}bg-success{% elif product.available_stock == 0 %}bg-danger{% else %}bg-secondary{% endif %}">
                                 <i class="fas fa-boxes me-1"></i>{{ product.available_stock }}
@@ -171,6 +176,7 @@
                                 <i class="fas fa-cubes me-1"></i>{{ product.total_stock }}
                             </span>
                         </td>
+                        -->
                         <td>
                             {% if product.batch_tracked %}
                                 <span class="badge bg-info">
@@ -1373,64 +1379,18 @@ document.addEventListener('DOMContentLoaded', function() {
                     return JSON.parse(cleanedText);
                 } catch (parseError) {
                     console.error('JSON parse error:', parseError);
-                    console.error('Error position - line:', parseError.lineNumber, 'column:', parseError.columnNumber);
-                    console.error('Full response text:', text);
-                    console.error('Cleaned response text:', cleanedText);
+                    console.error('Response text (first 500 chars):', text.substring(0, 500));
                     
-                    // Try to identify the problematic character
-                    if (parseError.lineNumber && parseError.columnNumber) {
-                        const lines = cleanedText.split('\n');
-                        const lineIndex = parseError.lineNumber - 1;
-                        if (lines[lineIndex]) {
-                            const line = lines[lineIndex];
-                            const charIndex = parseError.columnNumber - 1;
-                            if (line[charIndex]) {
-                                console.error('Problematic character:', line[charIndex], 'code:', line.charCodeAt(charIndex));
-                                console.error('Context around error:', line.substring(Math.max(0, charIndex - 5), charIndex + 5));
-                            }
-                        }
-                    }
-                    
-                    // Try alternative parsing approaches
-                    console.log('Attempting alternative parsing...');
-                    
-                    // Try parsing with eval (less safe but might work)
+                    // Simple fallback - try to extract JSON from response
                     try {
-                        console.log('Trying eval parsing...');
-                        const parsed = eval('(' + cleanedText + ')');
-                        console.log('Eval parsing succeeded:', parsed);
-                        return parsed;
-                    } catch (evalError) {
-                        console.error('Eval parsing failed:', evalError);
-                    }
-                    
-                    // Try removing all whitespace and parsing
-                    try {
-                        console.log('Trying compact parsing...');
-                        const compact = cleanedText.replace(/\s+/g, '');
-                        const parsed = JSON.parse(compact);
-                        console.log('Compact parsing succeeded:', parsed);
-                        return parsed;
-                    } catch (compactError) {
-                        console.error('Compact parsing failed:', compactError);
-                    }
-                    
-                    // Final fallback - try to manually extract the JSON structure
-                    try {
-                        console.log('Trying manual JSON extraction...');
-                        // Find the first { and last } to extract just the JSON part
                         const firstBrace = cleanedText.indexOf('{');
                         const lastBrace = cleanedText.lastIndexOf('}');
                         if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
                             const jsonPart = cleanedText.substring(firstBrace, lastBrace + 1);
-                            console.log('Extracted JSON part length:', jsonPart.length);
-                            console.log('Extracted JSON part (first 200 chars):', jsonPart.substring(0, 200));
-                            const parsed = JSON.parse(jsonPart);
-                            console.log('Manual extraction succeeded:', parsed);
-                            return parsed;
+                            return JSON.parse(jsonPart);
                         }
-                    } catch (manualError) {
-                        console.error('Manual extraction failed:', manualError);
+                    } catch (fallbackError) {
+                        console.error('Fallback parsing failed:', fallbackError);
                     }
                     
                     throw new Error('Invalid JSON response from server');

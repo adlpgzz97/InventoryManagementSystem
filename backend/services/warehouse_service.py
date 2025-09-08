@@ -217,7 +217,8 @@ class WarehouseService(BaseService):
                 raise NotFoundError(f"Warehouse with ID {warehouse_id} not found")
             
             # Get locations
-            locations = warehouse.get_locations()
+            from backend.models.warehouse import Location
+            locations = Location.get_by_warehouse(warehouse_id)
             return [location.to_dict() for location in locations]
             
         except (ValidationError, NotFoundError):
@@ -245,7 +246,8 @@ class WarehouseService(BaseService):
                 raise NotFoundError(f"Warehouse with ID {warehouse_id} not found")
             
             # Check if location code already exists in this warehouse
-            existing_locations = warehouse.get_locations()
+            from backend.models.warehouse import Location
+            existing_locations = Location.get_by_warehouse(warehouse_id)
             if any(l.code == code for l in existing_locations):
                 raise ValidationError(f"Location with code '{code}' already exists in this warehouse")
             
@@ -383,10 +385,25 @@ class WarehouseService(BaseService):
             # Get all warehouses
             warehouses = Warehouse.get_all()
             
+            from backend.models.warehouse import Location, Bin
+            from backend.models.stock import StockItem
+            
             total_warehouses = len(warehouses)
-            total_locations = sum(len(w.get_locations()) for w in warehouses)
-            total_bins = sum(len(w.get_bins()) for w in warehouses)
-            total_stock_items = sum(len(w.get_stock_items()) for w in warehouses)
+            total_locations = 0
+            total_bins = 0
+            total_stock_items = 0
+            
+            for warehouse in warehouses:
+                locations = Location.get_by_warehouse(warehouse.id)
+                total_locations += len(locations)
+                
+                for location in locations:
+                    bins = Bin.get_by_location(location.id)
+                    total_bins += len(bins)
+                    
+                    for bin_obj in bins:
+                        stock_items = StockItem.get_by_bin(bin_obj.id)
+                        total_stock_items += len(stock_items)
             
             # Calculate utilization
             utilization_data = []

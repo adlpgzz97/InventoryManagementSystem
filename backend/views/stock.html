@@ -142,13 +142,13 @@
                 <tbody id="stock-tbody">
                     {% for item in stock_items %}
                     <tr class="stock-row" 
-                                                    data-available="{{ item.available_stock }}"
-                            data-product-name="{{ (item.product.name if item.product else '')|lower }}"
-                            data-sku="{{ (item.product.sku if item.product else '')|lower }}"
-                            data-bin="{{ (item.bin.code if item.bin else '')|lower }}"
-                            data-location="{{ (item.location.code if item.location else '')|lower }}"
-                            data-warehouse="{{ (item.warehouse.name if item.warehouse else '')|lower }}"
-                            data-status="{% if item.available_stock == 0 %}out{% elif item.available_stock < 10 %}low{% else %}in{% endif %}">
+                            data-available="{{ (item.on_hand or 0) - (item.qty_reserved or 0) }}"
+                            data-product-name="{{ (item.product_name or '')|lower }}"
+                            data-sku="{{ (item.product_sku or '')|lower }}"
+                            data-bin="{{ (item.bin_code or '')|lower }}"
+                            data-location="{{ (item.location_code or '')|lower }}"
+                            data-warehouse="{{ (item.warehouse_name or '')|lower }}"
+                            data-status="{% if ((item.on_hand or 0) - (item.qty_reserved or 0)) == 0 %}out{% elif ((item.on_hand or 0) - (item.qty_reserved or 0)) < 10 %}low{% else %}in{% endif %}">
                         <td>
                             <div class="form-check">
                                 <input class="form-check-input stock-checkbox" type="checkbox" value="{{ item.id }}" id="stock-{{ loop.index }}">
@@ -157,39 +157,39 @@
                         </td>
                         <td>
                             <strong>
-                                {% if item.product %}
-                                    {{ item.product.name }}
+                                {% if item.product_name %}
+                                    {{ item.product_name }}
                                 {% else %}
                                     Unknown Product
                                 {% endif %}
                             </strong>
                         </td>
                         <td>
-                            {% if item.product %}
-                                <code>{{ item.product.sku }}</code>
+                            {% if item.product_sku %}
+                                <code>{{ item.product_sku }}</code>
                             {% else %}
                                 N/A
                             {% endif %}
                         </td>
                         <td>
-                            {% if item.bin and item.bin.code %}
-                                <span class="badge bg-primary" style="cursor: pointer;" onclick="binDetailsManager.showBinDetails('{{ item.bin.code }}')" title="Click to view bin details">{{ item.bin.code }}</span>
+                            {% if item.bin_code %}
+                                <span class="badge bg-primary" style="cursor: pointer;" onclick="binDetailsManager.showBinDetails('{{ item.bin_code }}')" title="Click to view bin details">{{ item.bin_code }}</span>
                             {% else %}
                                 <span class="text-muted">N/A</span>
                             {% endif %}
                         </td>
                         <td>
-                            {% if item.location and item.location.code %}
-                                <span class="badge bg-secondary">{{ item.location.code }}</span>
+                            {% if item.location_code %}
+                                <span class="badge bg-secondary">{{ item.location_code }}</span>
                             {% else %}
                                 <span class="text-muted">N/A</span>
                             {% endif %}
                         </td>
 
                         <td>
-                                                    <span class="badge bg-{% if item.available_stock == 0 %}danger{% elif item.available_stock < 10 %}warning{% else %}success{% endif %}">
-                            {{ item.available_stock }}
-                        </span>
+                            <span class="badge bg-{% if ((item.on_hand or 0) - (item.qty_reserved or 0)) == 0 %}danger{% elif ((item.on_hand or 0) - (item.qty_reserved or 0)) < 10 %}warning{% else %}success{% endif %}">
+                                {{ (item.on_hand or 0) - (item.qty_reserved or 0) }}
+                            </span>
                         </td>
                         <td>
                             {% if item.qty_reserved > 0 %}
@@ -214,9 +214,9 @@
                             {% endif %}
                         </td>
                         <td>
-                                                    {% if item.available_stock == 0 %}
-                            <span class="badge bg-danger">Out of Stock</span>
-                        {% elif item.available_stock < 10 %}
+                            {% if ((item.on_hand or 0) - (item.qty_reserved or 0)) == 0 %}
+                                <span class="badge bg-danger">Out of Stock</span>
+                            {% elif ((item.on_hand or 0) - (item.qty_reserved or 0)) < 10 %}
                                 <span class="badge bg-warning">Low Stock</span>
                             {% else %}
                                 <span class="badge bg-success">In Stock</span>

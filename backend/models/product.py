@@ -34,6 +34,50 @@ class Product(BaseModel):
     def __repr__(self):
         return f"<Product {self.name} (ID: {self.id})>"
     
+    @property
+    def available_stock(self) -> int:
+        """Get available stock - uses pre-calculated value if available"""
+        if hasattr(self, '_available_stock'):
+            return self._available_stock
+        
+        # Fallback to database query if not pre-calculated
+        try:
+            result = execute_query(
+                """
+                SELECT COALESCE(SUM(GREATEST(on_hand - qty_reserved, 0)), 0) as total_available
+                FROM stock_items 
+                WHERE product_id = %s
+                """,
+                (self.id,),
+                fetch_one=True
+            )
+            return int(result['total_available']) if result else 0
+        except Exception as e:
+            logger.error(f"Error calculating available stock for product {self.id}: {e}")
+            return 0
+    
+    @property
+    def total_stock(self) -> int:
+        """Get total stock - uses pre-calculated value if available"""
+        if hasattr(self, '_total_stock'):
+            return self._total_stock
+        
+        # Fallback to database query if not pre-calculated
+        try:
+            result = execute_query(
+                """
+                SELECT COALESCE(SUM(on_hand), 0) as total_stock
+                FROM stock_items 
+                WHERE product_id = %s
+                """,
+                (self.id,),
+                fetch_one=True
+            )
+            return int(result['total_stock']) if result else 0
+        except Exception as e:
+            logger.error(f"Error calculating total stock for product {self.id}: {e}")
+            return 0
+    
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Product':
         """Create Product instance from dictionary"""

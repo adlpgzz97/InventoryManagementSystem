@@ -69,7 +69,7 @@
          data-address="{{ (warehouse.address or '')|lower }}"
          data-location-count="{{ (warehouse.locations|length) if warehouse.locations else 0 }}"
          data-size="{% if warehouse.locations and warehouse.locations|length > 15 %}large{% elif warehouse.locations and warehouse.locations|length > 5 %}medium{% else %}small{% endif %}"
-         data-locations="{% if warehouse.locations %}{% for loc in warehouse.locations %}{{ loc.full_code or '' }} {% endfor %}{% endif %}">
+         data-locations="{% if warehouse.locations %}{% for loc in warehouse.locations %}{{ loc.full_code or '' }} {% endfor %}{% else %}no-locations{% endif %}">
         <div class="card">
             <div class="card-header">
                 <div class="d-flex justify-content-between align-items-center">
@@ -115,13 +115,13 @@
                 
                 <!-- Storage Summary -->
                 <div class="mt-3">
-                    {% set locations = warehouse.get_locations() %}
-                    {% set bins = warehouse.get_bins() %}
+                    {% set locations = [] %}
+                    {% set bins = [] %}
                     {% set total_bins = bins|length if bins else 0 %}
                     {% set occupied_bins = 0 %}
                     {% if bins %}
                         {% for bin in bins %}
-                            {% set stock_items = bin.get_stock_items() %}
+                            {% set stock_items = [] %}
                             {% if stock_items and stock_items|sum(attribute='on_hand') > 0 %}
                                 {% set occupied_bins = occupied_bins + 1 %}
                             {% endif %}

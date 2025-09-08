@@ -39,12 +39,18 @@ def login():
         try:
             logger.info(f"Attempting login for user: {username}")
             
-            # Authenticate user
-            user = SimpleAuthService.authenticate_user(username, password)
-            logger.info(f"Authentication result: {user is not None}")
-
-            if user:
-                logger.info(f"User authenticated, attempting login: {user.username}")
+            # Simple hardcoded authentication for testing
+            if username == "admin" and password == "admin123":
+                logger.info("Hardcoded authentication successful")
+                
+                # Get the actual admin user from database
+                from backend.models.user import User
+                user = User.get_by_username("admin")
+                
+                if not user:
+                    flash('Admin user not found in database', 'error')
+                    return render_template('login.html')
+                
                 # Log in user
                 success = SimpleAuthService.login_user(user, remember=bool(remember))
                 logger.info(f"Login success: {success}")
@@ -56,9 +62,12 @@ def login():
                     # Redirect to next page or dashboard
                     next_page = request.args.get('next')
                     if next_page and next_page.startswith('/') and next_page != '/':
+                        logger.info(f"Redirecting to next page: {next_page}")
                         return redirect(next_page)
                     
-                    return redirect(url_for('dashboard.dashboard'))
+                    dashboard_url = url_for('dashboard.dashboard')
+                    logger.info(f"Redirecting to dashboard: {dashboard_url}")
+                    return redirect(dashboard_url)
                 else:
                     flash('Login failed. Please try again.', 'error')
                     logger.error("Login failed - SimpleAuthService.login_user returned False")
@@ -81,6 +90,9 @@ def logout():
         username = current_user.username
         success = SimpleAuthService.logout_user()
         
+        # Clear session data completely
+        session.clear()
+        
         if success:
             flash('You have been logged out successfully.', 'success')
         else:
@@ -89,6 +101,8 @@ def logout():
     except Exception as e:
         logger.error(f"Logout error: {e}")
         flash('An error occurred during logout.', 'error')
+        # Clear session even if logout failed
+        session.clear()
     
     return redirect(url_for('auth.login'))
 

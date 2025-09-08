@@ -10,9 +10,48 @@ import logging
 from backend.services.product_service import ProductService
 from backend.models.product import Product
 from backend.models.stock import StockItem
+from backend.utils.database import execute_query
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+
+def _add_stock_data_to_products(products):
+    """Add stock data to products to avoid N+1 queries"""
+    if not products:
+        return products
+    
+    # Get all product IDs
+    product_ids = [product.id for product in products]
+    
+    # Single query to get all stock data for all products
+    # Use IN clause with string formatting for UUIDs
+    placeholders = ','.join(['%s'] * len(product_ids))
+    
+    stock_data = execute_query(
+        f"""
+        SELECT 
+            product_id,
+            SUM(on_hand) as total_stock,
+            SUM(GREATEST(on_hand - qty_reserved, 0)) as available_stock
+        FROM stock_items 
+        WHERE product_id IN ({placeholders})
+        GROUP BY product_id
+        """,
+        product_ids,
+        fetch_all=True
+    )
+    
+    # Create a lookup dictionary (convert UUID back to string for lookup)
+    stock_lookup = {str(row['product_id']): row for row in stock_data}
+    
+    # Add stock data to products
+    for product in products:
+        stock_info = stock_lookup.get(product.id, {})
+        product._total_stock = int(stock_info.get('total_stock', 0))
+        product._available_stock = int(stock_info.get('available_stock', 0))
+    
+    return products
 
 # Create blueprint
 products_bp = Blueprint('products', __name__, url_prefix='/products')
@@ -28,17 +67,22 @@ def products_list():
         filter_type = request.args.get('filter', '')
         
         # Get products based on filters
+        product_service = ProductService()
+        
         if filter_type == 'low_stock':
-            products_data = ProductService.get_low_stock_products()
+            products_data = product_service.get_low_stock_products()
             products = [Product.get_by_id(item['product']['id']) for item in products_data]
         elif filter_type == 'overstocked':
-            products_data = ProductService.get_overstocked_products()
+            products_data = product_service.get_overstocked_products()
             products = [Product.get_by_id(item['product']['id']) for item in products_data]
         elif filter_type == 'expiring':
-            products_data = ProductService.get_expiring_products()
+            products_data = product_service.get_expiring_products()
             products = [Product.get_by_id(item['product']['id']) for item in products_data]
         else:
-            products = ProductService.search_products(search_term)
+            products = product_service.search_products(search_term)
+        
+        # Pre-calculate stock data to avoid N+1 queries
+        products = _add_stock_data_to_products(products)
         
         return render_template('products.html',
                              products=products,

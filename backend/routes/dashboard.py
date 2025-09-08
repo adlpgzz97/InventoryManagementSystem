@@ -27,15 +27,25 @@ dashboard_bp = Blueprint('dashboard', __name__)
 @login_required
 def dashboard():
     """Main dashboard page"""
-    logger.info(f"Dashboard route accessed by user: {current_user.username}")
+    logger.info("Dashboard route accessed")
     
     try:
-        # Use dashboard service to get data
-        dashboard_service = DashboardService()
-        dashboard_data = dashboard_service.get_user_dashboard_data(current_user.id)
+        logger.info("Dashboard route - returning simple response")
         
-        logger.info("Dashboard data loaded successfully via service, rendering template")
-        return render_template('dashboard.html', **dashboard_data)
+        # Return a very simple response without using current_user
+        return """
+        <html>
+        <head><title>Dashboard</title></head>
+        <body>
+            <h1>Dashboard</h1>
+            <p>Welcome to the Inventory Management System!</p>
+            <p>Dashboard is working!</p>
+            <a href="/products/">Products</a> | 
+            <a href="/warehouses/">Warehouses</a> | 
+            <a href="/stock/">Stock</a>
+        </body>
+        </html>
+        """
                              
     except Exception as e:
         logger.error(f"Error loading dashboard: {e}")

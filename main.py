@@ -27,13 +27,15 @@ def start_flask_app():
         flask_process = subprocess.Popen(
             [python_executable, '-m', 'backend.app'],
             cwd=str(Path(__file__).parent),
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stdout=None,  # Don't capture stdout - let it display
+            stderr=None,  # Don't capture stderr - let it display
             text=True
         )
         
         # Quick startup check - only wait 10 seconds max
         flask_url = f'http://{config.APP_HOST}:{config.APP_PORT}'
+        
+        print(f"* Checking Flask startup at {flask_url}")
         
         for attempt in range(10):  # Reduced from 60 to 10
             try:
@@ -43,10 +45,21 @@ def start_flask_app():
                 
                 response = requests.get(flask_url, timeout=1)
                 if response.status_code in [200, 302, 404, 500]:
-                    print(f"* Flask started successfully")
+                    print(f"* Flask started successfully on {flask_url}")
+                    
+                    # Test a few key endpoints to ensure they're working
+                    try:
+                        test_endpoints = ['/api/health', '/auth/login']
+                        for endpoint in test_endpoints:
+                            test_response = requests.get(f"{flask_url}{endpoint}", timeout=2)
+                            print(f"* Test endpoint {endpoint}: {test_response.status_code}")
+                    except Exception as e:
+                        print(f"* Warning: Endpoint test failed: {e}")
+                    
                     return flask_process, flask_url
                     
             except requests.exceptions.ConnectionError:
+                print(f"* Attempt {attempt + 1}: Connection refused, waiting...")
                 pass
             except Exception as e:
                 print(f"* Error: {e}")
@@ -73,7 +86,9 @@ def main():
             return
         
         # Create window immediately - no extensive checks
-        login_url = f'{flask_url}/auth/login'
+        import time
+        cache_buster = int(time.time())
+        login_url = f'{flask_url}/auth/login?cb={cache_buster}'
         print(f"* Opening login page: {login_url}")
         
         # Create PyWebView window with minimal configuration
