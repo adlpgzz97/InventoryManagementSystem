@@ -60,7 +60,8 @@ def get_connection_pool():
             logger.error(f"Failed to create connection pool: {e}")
             raise DatabaseError(f"Failed to create connection pool: {str(e)}")
     else:
-        logger.debug("Using existing database connection pool")
+        # Suppress noisy debug log to keep terminal/log output clean
+        pass
     
     return _connection_pool
 

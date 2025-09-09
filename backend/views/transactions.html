@@ -372,6 +372,7 @@ document.addEventListener('DOMContentLoaded', function() {
     function setupEventListeners() {
         // Search and filter events
         if (searchInput) {
+            // Avoid innerHTML mutations: just trigger filtering
             searchInput.addEventListener('input', filterTransactions);
         }
         if (filterType) {

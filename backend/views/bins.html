@@ -1,0 +1,346 @@
+{% extends "base.html" %}
+
+{% block title %}Bins - Inventory Management{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+    <h1 class="h2">Bins Overview</h1>
+    <div class="btn-toolbar mb-2 mb-md-0">
+        <div class="btn-group me-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="export-bins">
+                <i class="fas fa-download"></i> Export CSV
+            </button>
+        </div>
+    </div>
+    </div>
+
+<div class="card">
+    <div class="card-header">
+        <div class="row g-2 align-items-center">
+            <div class="col-md-4">
+                <input type="text" id="search-bins" class="form-control form-control-sm" placeholder="Search bins or locations..." value="{{ search_term or '' }}">
+            </div>
+            <div class="col-md-3">
+                <select id="filter-warehouse" class="form-select form-select-sm">
+                    <option value="">All Warehouses</option>
+                    {% set seen_wh = [] %}
+                    {% for b in bins %}
+                        {% if b.warehouse_id and b.warehouse_name and b.warehouse_id not in seen_wh %}
+                            {% set _ = seen_wh.append(b.warehouse_id) %}
+                            <option value="{{ b.warehouse_id }}" {% if selected_warehouse and selected_warehouse == b.warehouse_id %}selected{% endif %}>
+                                {{ b.warehouse_name }}
+                            </option>
+                        {% endif %}
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="col-md-1">
+                <div class="form-check form-switch mt-1">
+                    <input class="form-check-input" type="checkbox" id="toggle-hide-empty">
+                    <label class="form-check-label" for="toggle-hide-empty"><small>Hide empty</small></label>
+                </div>
+            </div>
+            <div class="col-md-1">
+                <div class="form-check form-switch mt-1">
+                    <input class="form-check-input" type="checkbox" id="toggle-hide-unlocated">
+                    <label class="form-check-label" for="toggle-hide-unlocated"><small>Hide no location</small></label>
+                </div>
+            </div>
+            <div class="col-md-2">
+                <button id="clear-bins-filters" class="btn btn-outline-secondary btn-sm w-100">
+                    <i class="fas fa-times me-1"></i>Clear
+                </button>
+            </div>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="table-responsive table-enhanced">
+            <table class="table table-hover" id="binsTable">
+                <thead>
+                    <tr>
+                        <th class="sortable" data-column="bin" data-type="text">Bin <i class="fas fa-sort text-muted"></i></th>
+                        <th class="sortable" data-column="location" data-type="text">Location <i class="fas fa-sort text-muted"></i></th>
+                        <th class="sortable" data-column="warehouse" data-type="text">Warehouse <i class="fas fa-sort text-muted"></i></th>
+                        <th class="sortable" data-column="products" data-type="number">Products <i class="fas fa-sort text-muted"></i></th>
+                        <th class="sortable" data-column="on_hand" data-type="number">On Hand <i class="fas fa-sort text-muted"></i></th>
+                        <th class="sortable" data-column="reserved" data-type="number">Reserved <i class="fas fa-sort text-muted"></i></th>
+                        <th class="sortable" data-column="available" data-type="number">Available <i class="fas fa-sort text-muted"></i></th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="bins-tbody">
+                    {% for b in bins %}
+                    {% set available = (b.on_hand or 0) - (b.qty_reserved or 0) %}
+                    <tr class="bin-row"
+                        data-bin="{{ (b.bin_code or '')|lower }}"
+                        data-location="{{ (b.location_code or '')|lower }}"
+                        data-warehouse-id="{{ b.warehouse_id or '' }}"
+                        data-warehouse-name="{{ (b.warehouse_name or '')|lower }}"
+                        data-products="{{ b.product_count or 0 }}"
+                        data-on-hand="{{ b.on_hand or 0 }}"
+                        data-reserved="{{ b.qty_reserved or 0 }}"
+                        data-available="{{ available }}">
+                        <td>
+                            {% if b.bin_code %}
+                                <span class="badge bg-primary" style="cursor: pointer;" onclick="binDetailsManager.showBinDetails('{{ b.bin_code }}')" title="Click to view bin details">{{ b.bin_code }}</span>
+                            {% else %}
+                                <span class="text-muted">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            {% if b.location_code %}
+                                <span class="badge bg-secondary">{{ b.location_code }}</span>
+                            {% else %}
+                                <span class="text-muted">N/A</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ b.warehouse_name or '—' }}</td>
+                        <td><span class="badge bg-info">{{ b.product_count or 0 }}</span></td>
+                        <td><strong>{{ b.on_hand or 0 }}</strong></td>
+                        <td>{{ b.qty_reserved or 0 }}</td>
+                        <td>
+                            <span class="badge bg-{% if available == 0 %}danger{% elif available < 10 %}warning{% else %}success{% endif %}">{{ available }}</span>
+                        </td>
+                        <td>
+                            <div class="btn-group btn-group-sm">
+                                <button class="btn btn-outline-primary" onclick="binDetailsManager.showBinDetails('{{ b.bin_code }}')" title="View Details">
+                                    <i class="fas fa-eye"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card-footer">
+        <div class="row align-items-center">
+            <div class="col-md-3">
+                <div class="d-flex align-items-center">
+                    <label for="bins-items-per-page" class="form-label me-2 mb-0 small">Show:</label>
+                    <select id="bins-items-per-page" class="form-select form-select-sm" style="width: auto;">
+                        <option value="10">10</option>
+                        <option value="25" selected>25</option>
+                        <option value="50">50</option>
+                        <option value="100">100</option>
+                        <option value="all">All</option>
+                    </select>
+                    <span class="ms-2 small text-muted">per page</span>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <nav aria-label="Bins pagination">
+                    <ul class="pagination pagination-sm justify-content-center mb-0" id="bins-pagination-controls"></ul>
+                </nav>
+            </div>
+            <div class="col-md-3 text-end">
+                <small class="text-muted"><span id="bins-pagination-info">Showing 1-25 of {{ bins|length }}</span></small>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block modals %}
+{% include 'bin_details_modal.html' %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const searchInput = document.getElementById('search-bins');
+    const warehouseFilter = document.getElementById('filter-warehouse');
+    const hideEmptyToggle = document.getElementById('toggle-hide-empty');
+    const hideUnlocatedToggle = document.getElementById('toggle-hide-unlocated');
+    const clearFiltersBtn = document.getElementById('clear-bins-filters');
+    const binsRows = Array.from(document.querySelectorAll('.bin-row'));
+
+    let binsCurrentPage = 1;
+    let binsItemsPerPage = 25;
+    let binsFilteredRows = Array.from(binsRows);
+    let binsCurrentSort = { column: null, direction: 'asc' };
+
+    function updateBinsPagination() {
+        const totalItems = binsFilteredRows.length;
+        const totalPages = binsItemsPerPage === 'all' ? 1 : Math.ceil(totalItems / binsItemsPerPage);
+        const startItem = binsItemsPerPage === 'all' ? 1 : (binsCurrentPage - 1) * binsItemsPerPage + 1;
+        const endItem = binsItemsPerPage === 'all' ? totalItems : Math.min(binsCurrentPage * binsItemsPerPage, totalItems);
+        document.getElementById('bins-pagination-info').textContent = `Showing ${startItem}-${endItem} of ${totalItems}`;
+
+        const paginationControls = document.getElementById('bins-pagination-controls');
+        paginationControls.innerHTML = '';
+        if (binsItemsPerPage === 'all' || totalPages <= 1) return;
+
+        const prev = createBtn('‹', binsCurrentPage - 1, binsCurrentPage === 1);
+        paginationControls.appendChild(prev);
+        const startPage = Math.max(1, binsCurrentPage - 2);
+        const endPage = Math.min(totalPages, binsCurrentPage + 2);
+        if (startPage > 1) {
+            paginationControls.appendChild(createBtn('1', 1));
+            if (startPage > 2) paginationControls.appendChild(ellipsis());
+        }
+        for (let i = startPage; i <= endPage; i++) paginationControls.appendChild(createBtn(i, i, false, i === binsCurrentPage));
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) paginationControls.appendChild(ellipsis());
+            paginationControls.appendChild(createBtn(totalPages, totalPages));
+        }
+        const next = createBtn('›', binsCurrentPage + 1, binsCurrentPage === totalPages);
+        paginationControls.appendChild(next);
+    }
+
+    function createBtn(text, page, disabled = false, active = false) {
+        const li = document.createElement('li');
+        li.className = `page-item ${disabled ? 'disabled' : ''} ${active ? 'active' : ''}`;
+        const btn = document.createElement(disabled ? 'span' : 'button');
+        btn.className = 'page-link';
+        btn.textContent = text;
+        if (!disabled) btn.addEventListener('click', () => { binsCurrentPage = page; applyPagination(); });
+        li.appendChild(btn);
+        return li;
+    }
+    function ellipsis() { const li = document.createElement('li'); li.className = 'page-item disabled'; li.innerHTML = '<span class="page-link">...</span>'; return li; }
+
+    function applyPagination() {
+        const tbody = document.getElementById('bins-tbody');
+        if (!tbody) return;
+        let rowsToShow;
+        if (binsItemsPerPage === 'all') rowsToShow = binsFilteredRows; else {
+            const startIndex = (binsCurrentPage - 1) * binsItemsPerPage;
+            rowsToShow = binsFilteredRows.slice(startIndex, startIndex + binsItemsPerPage);
+        }
+        while (tbody.firstChild) tbody.removeChild(tbody.firstChild);
+        rowsToShow.forEach(r => tbody.appendChild(r));
+        updateBinsPagination();
+    }
+
+    function filterBins() {
+        const term = (searchInput?.value || '').toLowerCase();
+        const wh = warehouseFilter?.value || '';
+        const hideEmpty = !!(hideEmptyToggle && hideEmptyToggle.checked);
+        const hideUnlocated = !!(hideUnlocatedToggle && hideUnlocatedToggle.checked);
+        const url = new URL(window.location);
+        if (term) url.searchParams.set('search', term); else url.searchParams.delete('search');
+        if (wh) url.searchParams.set('warehouse', wh); else url.searchParams.delete('warehouse');
+        if (hideEmpty) url.searchParams.set('hideEmpty', 'true'); else url.searchParams.delete('hideEmpty');
+        if (hideUnlocated) url.searchParams.set('hideUnlocated', 'true'); else url.searchParams.delete('hideUnlocated');
+        window.history.replaceState({}, '', url);
+
+        binsFilteredRows = binsRows.filter(row => {
+            const bin = row.getAttribute('data-bin') || '';
+            const loc = row.getAttribute('data-location') || '';
+            const whId = row.getAttribute('data-warehouse-id') || '';
+            const whName = row.getAttribute('data-warehouse-name') || '';
+            const onHand = parseFloat(row.getAttribute('data-on-hand') || '0');
+            const reserved = parseFloat(row.getAttribute('data-reserved') || '0');
+            const isEmpty = (onHand + reserved) === 0;
+            const isUnlocated = loc.trim().length === 0;
+            const matchesTerm = !term || bin.includes(term) || loc.includes(term) || whName.includes(term);
+            const matchesWh = !wh || whId === wh;
+            const passesEmpty = !hideEmpty || !isEmpty;
+            const passesUnlocated = !hideUnlocated || !isUnlocated;
+            return matchesTerm && matchesWh && passesEmpty && passesUnlocated;
+        });
+        binsCurrentPage = 1;
+        applyPagination();
+    }
+
+    function sortBins(column, dataType) {
+        const direction = binsCurrentSort.column === column && binsCurrentSort.direction === 'asc' ? 'desc' : 'asc';
+        binsCurrentSort = { column, direction };
+        document.querySelectorAll('#binsTable .sortable i').forEach(icon => icon.className = 'fas fa-sort text-muted');
+        const icon = document.querySelector(`#binsTable th[data-column="${column}"] i`);
+        if (icon) icon.className = `fas fa-sort-${direction === 'asc' ? 'up' : 'down'} text-primary`;
+
+        const valueOf = (row) => {
+            if (column === 'bin') return (row.getAttribute('data-bin') || '');
+            if (column === 'location') return (row.getAttribute('data-location') || '');
+            if (column === 'warehouse') return (row.getAttribute('data-warehouse-name') || '');
+            if (column === 'products') return parseFloat(row.getAttribute('data-products') || '0');
+            if (column === 'on_hand') return parseFloat(row.getAttribute('data-on-hand') || '0');
+            if (column === 'reserved') return parseFloat(row.getAttribute('data-reserved') || '0');
+            if (column === 'available') return parseFloat(row.getAttribute('data-available') || '0');
+            return '';
+        };
+
+        binsFilteredRows.sort((a, b) => {
+            const av = valueOf(a); const bv = valueOf(b);
+            if (dataType === 'number') return direction === 'asc' ? av - bv : bv - av;
+            return direction === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av));
+        });
+        binsCurrentPage = 1;
+        applyPagination();
+    }
+
+    // Events
+    searchInput?.addEventListener('input', filterBins);
+    warehouseFilter?.addEventListener('change', filterBins);
+    hideEmptyToggle?.addEventListener('change', filterBins);
+    hideUnlocatedToggle?.addEventListener('change', filterBins);
+    clearFiltersBtn?.addEventListener('click', function() {
+        if (searchInput) searchInput.value = '';
+        if (warehouseFilter) warehouseFilter.value = '';
+        if (hideEmptyToggle) hideEmptyToggle.checked = false;
+        if (hideUnlocatedToggle) hideUnlocatedToggle.checked = false;
+        const url = new URL(window.location);
+        url.searchParams.delete('search');
+        url.searchParams.delete('warehouse');
+        url.searchParams.delete('hideEmpty');
+        url.searchParams.delete('hideUnlocated');
+        window.history.replaceState({}, '', url);
+        filterBins();
+    });
+
+    const perPageSelect = document.getElementById('bins-items-per-page');
+    perPageSelect?.addEventListener('change', function() {
+        binsItemsPerPage = this.value === 'all' ? 'all' : parseInt(this.value);
+        binsCurrentPage = 1;
+        applyPagination();
+    });
+
+    document.querySelectorAll('#binsTable .sortable').forEach(header => {
+        header.style.cursor = 'pointer';
+        header.addEventListener('click', function() {
+            const column = this.getAttribute('data-column');
+            const dataType = this.getAttribute('data-type');
+            sortBins(column, dataType);
+        });
+    });
+
+    // CSV Export
+    document.getElementById('export-bins')?.addEventListener('click', function() {
+        const visibleRows = Array.from(document.querySelectorAll('.bin-row'))
+            .filter(r => r.parentElement && r.parentElement.id === 'bins-tbody');
+        if (visibleRows.length === 0) { alert('No bins to export.'); return; }
+        const headers = ['Bin', 'Location', 'Warehouse', 'Products', 'On Hand', 'Reserved', 'Available'];
+        let csv = headers.join(',') + '\n';
+        visibleRows.forEach(row => {
+            const data = [
+                row.getAttribute('data-bin') || '',
+                row.getAttribute('data-location') || '',
+                row.getAttribute('data-warehouse-name') || '',
+                row.getAttribute('data-products') || '0',
+                row.getAttribute('data-on-hand') || '0',
+                row.getAttribute('data-reserved') || '0',
+                row.getAttribute('data-available') || '0'
+            ];
+            csv += data.map(v => `"${v}"`).join(',') + '\n';
+        });
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `bins_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    });
+
+    // Init
+    applyPagination();
+});
+</script>
+{% endblock %}
+
+

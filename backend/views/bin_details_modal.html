@@ -580,10 +580,20 @@ class BinDetailsManager {
         document.getElementById('binInfo').style.display = 'block';
         
         document.getElementById('binDetails').innerHTML = `
-            <p><strong>Bin Code:</strong> ${data.bin.code}</p>
+            <p class="mb-1"><strong>Bin Code:</strong> <span id="binCodeText">${data.bin.code}</span></p>
+            <div class="input-group input-group-sm mb-2" style="max-width: 240px;">
+                <span class="input-group-text">New Code</span>
+                <input type="text" class="form-control" id="renameBinInput" placeholder="B1234" maxlength="5">
+                <button class="btn btn-outline-primary" id="renameBinBtn" title="Rename bin">
+                    <i class="fas fa-pen"></i>
+                </button>
+            </div>
             <p><strong>Location:</strong> ${data.bin.location_code || 'Not assigned'}</p>
             <button class="btn btn-warning btn-sm mt-2" onclick="binDetailsManager.showChangeLocationModal()">
                 <i class="fas fa-map-marker-alt me-1"></i>Change Location
+            </button>
+            <button class="btn btn-outline-danger btn-sm mt-2 ms-2" id="deleteBinBtn" title="Delete bin">
+                <i class="fas fa-trash"></i> Delete Bin
             </button>
         `;
         
@@ -598,8 +608,23 @@ class BinDetailsManager {
             this.displayStockItems(data.stock_items);
             document.getElementById('stockItemsContainer').style.display = 'block';
             document.getElementById('emptyState').style.display = 'none';
+            // Disable delete when has stock
+            const delBtn = document.getElementById('deleteBinBtn');
+            if (delBtn) { delBtn.disabled = true; delBtn.title = 'Cannot delete a bin that has stock'; }
         } else {
             this.showEmptyBin();
+            const delBtn = document.getElementById('deleteBinBtn');
+            if (delBtn) { delBtn.disabled = false; delBtn.title = 'Delete this empty bin'; }
+        }
+
+        // Wire rename/delete actions
+        const renameBtn = document.getElementById('renameBinBtn');
+        if (renameBtn) {
+            renameBtn.onclick = () => this.submitRenameBin();
+        }
+        const deleteBtn = document.getElementById('deleteBinBtn');
+        if (deleteBtn) {
+            deleteBtn.onclick = () => this.submitDeleteBin();
         }
     }
     
@@ -670,6 +695,72 @@ class BinDetailsManager {
                 <i class="fas fa-plus me-2"></i>Assign Stock to Bin
             </button>
         `;
+    }
+
+    async submitRenameBin() {
+        const input = document.getElementById('renameBinInput');
+        if (!input) return;
+        const newCode = (input.value || '').toUpperCase().trim();
+        if (!newCode) { alert('Enter a new bin code.'); return; }
+        const regex = /^B\d{4}$/;
+        if (!regex.test(newCode)) {
+            alert('Invalid code format. Use B#### (e.g., B1003).');
+            return;
+        }
+        const btn = document.getElementById('renameBinBtn');
+        const original = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        btn.disabled = true;
+        try {
+            const res = await fetch(`/warehouses/api/bin/${this.currentBin.code}/rename`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ new_code: newCode })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                // Update current state and UI
+                this.currentBin.code = newCode;
+                const codeEl = document.getElementById('binCodeText');
+                if (codeEl) codeEl.textContent = newCode;
+                input.value = '';
+                // Small success toast via success modal
+                document.getElementById('successMessage').textContent = `Bin code changed to ${newCode}`;
+                new bootstrap.Modal(document.getElementById('successModal')).show();
+            } else {
+                alert(data.error || 'Failed to rename bin');
+            }
+        } catch (e) {
+            alert('Network error while renaming bin');
+        } finally {
+            btn.innerHTML = original;
+            btn.disabled = false;
+        }
+    }
+
+    async submitDeleteBin() {
+        if (!confirm(`Delete bin ${this.currentBin.code}? This cannot be undone.`)) return;
+        try {
+            const res = await fetch(`/warehouses/api/bin/${this.currentBin.code}`, {
+                method: 'DELETE',
+                credentials: 'same-origin'
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                // Close details modal
+                const modal = bootstrap.Modal.getInstance(document.getElementById('binDetailsModal'));
+                if (modal) modal.hide();
+                this.cleanupModalBackdrop();
+                // Notify success
+                document.getElementById('successMessage').textContent = data.message || 'Bin deleted';
+                new bootstrap.Modal(document.getElementById('successModal')).show();
+            } else {
+                alert(data.error || 'Failed to delete bin');
+            }
+        } catch (e) {
+            alert('Network error while deleting bin');
+        }
     }
     
     showLoading() {
@@ -787,7 +878,7 @@ class BinDetailsManager {
         submitBtn.disabled = true;
         
         try {
-            const response = await fetch('/api/scanner/transaction', {
+            const response = await fetch('/scanner/api/transaction', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -795,7 +886,7 @@ class BinDetailsManager {
                 credentials: 'same-origin',
                 body: JSON.stringify({
                     stock_item_id: this.currentTransaction.stockItemId,
-                    transaction_type: transactionType,
+                    type: transactionType,
                     quantity_change: quantity,
                     notes: notes
                 })
@@ -1031,6 +1122,90 @@ class BinDetailsManager {
     
     // Include other methods like showAssignStockModal, showChangeLocationModal, etc.
     // (abbreviated for space - these would be similar to the scanner implementation)
+    async showAssignStockModal() {
+        if (!this.currentBin) {
+            alert('No bin selected');
+            return;
+        }
+        // Populate fields
+        const binCodeInput = document.getElementById('assignBinCode');
+        const locInput = document.getElementById('assignLocationCode');
+        const productSelect = document.getElementById('assignProductId');
+        document.getElementById('assignQuantity').value = '1';
+        document.getElementById('assignBatchId').value = '';
+        document.getElementById('assignExpiryDate').value = '';
+        if (binCodeInput) binCodeInput.value = this.currentBin.code || '';
+        if (locInput) locInput.value = this.currentBin.location_code || 'Not assigned';
+
+        // Load products
+        try {
+            const res = await fetch('/scanner/api/products/available', { credentials: 'same-origin' });
+            const data = await res.json();
+            if (res.ok && data.success && Array.isArray(data.products)) {
+                productSelect.innerHTML = '<option value="">Select a product...</option>' +
+                    data.products.map(p => `<option value="${p.id}">${p.name}${p.sku ? ' (' + p.sku + ')' : ''}</option>`).join('');
+            } else {
+                productSelect.innerHTML = '<option value="">No products available</option>';
+            }
+        } catch (e) {
+            productSelect.innerHTML = '<option value="">Error loading products</option>';
+        }
+
+        new bootstrap.Modal(document.getElementById('assignStockModal')).show();
+    }
+
+    async submitAssignStock() {
+        if (!this.currentBin) return;
+        const productId = document.getElementById('assignProductId').value;
+        const qtyStr = document.getElementById('assignQuantity').value;
+        const quantity = parseInt(qtyStr || '0', 10);
+        const batchId = document.getElementById('assignBatchId').value || null;
+        const expiryDate = document.getElementById('assignExpiryDate').value || null;
+
+        if (!productId) { alert('Please select a product.'); return; }
+        if (!quantity || quantity <= 0) { alert('Please enter a valid quantity.'); return; }
+
+        const btn = document.getElementById('submitAssignStock');
+        const original = btn.innerHTML;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Assigning...';
+        btn.disabled = true;
+
+        try {
+            // Use scanner transaction API with bin_assign type to avoid capacity dependency
+            const res = await fetch('/scanner/api/transaction', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    type: 'bin_assign',
+                    bin_code: this.currentBin.code,
+                    product_id: productId,
+                    quantity: quantity,
+                    batch_id: batchId,
+                    expiry_date: expiryDate
+                })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                // Close assign modal
+                const assignModal = bootstrap.Modal.getInstance(document.getElementById('assignStockModal'));
+                if (assignModal) assignModal.hide();
+                this.cleanupModalBackdrop();
+                // Show success and refresh
+                document.getElementById('successMessage').textContent = 'Stock assigned to bin successfully';
+                new bootstrap.Modal(document.getElementById('successModal')).show();
+                // Refresh details to show new stock
+                this.showBinDetails(this.currentBin.code);
+            } else {
+                alert(data.error || 'Failed to assign stock');
+            }
+        } catch (e) {
+            alert('Network error while assigning stock');
+        } finally {
+            btn.innerHTML = original;
+            btn.disabled = false;
+        }
+    }
 }
 
 // Initialize global bin details manager

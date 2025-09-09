@@ -666,48 +666,10 @@ document.addEventListener('DOMContentLoaded', function() {
         filterProducts();
     });
 
-    // Highlight search terms
-    function highlightSearchTerms() {
-        if (!searchInput || !searchInput.value) return;
-        
-        const searchTerm = searchInput.value.toLowerCase();
-        if (searchTerm.length < 2) return;
-
-        productRows.forEach(row => {
-            if (row.style.display !== 'none') {
-                const cells = row.querySelectorAll('td');
-                cells.forEach(cell => {
-                    if (cell.querySelector('.btn-group')) return; // Skip action buttons
-                    
-                    const originalText = cell.textContent;
-                    const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-                    const highlightedText = originalText.replace(regex, '<mark>$1</mark>');
-                    
-                    if (highlightedText !== originalText) {
-                        cell.innerHTML = highlightedText;
-                    }
-                });
-            }
-        });
-    }
-
-    // Enhanced search with highlighting
+    // Enhanced search without mutating cell innerHTML (preserves styling)
     if (searchInput) {
         searchInput.addEventListener('input', function() {
             filterProducts();
-            // Clear previous highlights
-            productRows.forEach(row => {
-                const cells = row.querySelectorAll('td');
-                cells.forEach(cell => {
-                    if (cell.querySelector('.btn-group')) return;
-                    const text = cell.textContent;
-                    cell.innerHTML = text;
-                });
-            });
-            // Add new highlights
-            if (this.value.length >= 2) {
-                highlightSearchTerms();
-            }
         });
     }
 

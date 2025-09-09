@@ -560,7 +560,7 @@ class Bin:
         """Create Bin instance from dictionary"""
         return cls(
             id=str(data['id']),
-            location_id=str(data['location_id']),
+            location_id=(str(data['location_id']) if data.get('location_id') is not None else None),
             code=data['code'],
             created_at=data.get('created_at'),
             updated_at=data.get('updated_at')

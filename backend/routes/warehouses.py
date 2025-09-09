@@ -979,6 +979,92 @@ def change_bin_location(bin_code):
         return jsonify({'error': f'Failed to change bin location: {str(e)}'}), 500
 
 
+@warehouses_bp.route('/api/bin/<bin_code>/rename', methods=['POST'])
+@login_required
+def rename_bin_code(bin_code):
+    """Rename a bin's code with validation and uniqueness check"""
+    try:
+        data = request.get_json() or {}
+        new_code = (data.get('new_code') or '').strip().upper()
+
+        if not new_code:
+            return jsonify({'error': 'New bin code is required'}), 400
+
+        # Enforce format B#### (exactly 4 digits)
+        import re
+        if not re.match(r'^B\d{4}$', new_code):
+            return jsonify({'error': 'Invalid code format. Use B#### (e.g., B1003)'}), 400
+
+        # Get the bin
+        bin_obj = Bin.get_by_code(bin_code)
+        if not bin_obj:
+            return jsonify({'error': 'Bin not found'}), 404
+
+        if new_code == bin_obj.code:
+            return jsonify({'success': True, 'message': 'Code unchanged', 'bin_code': bin_obj.code})
+
+        # Ensure uniqueness
+        exists = execute_query(
+            "SELECT 1 FROM bins WHERE code = %s",
+            (new_code,),
+            fetch_one=True
+        )
+        if exists:
+            return jsonify({'error': f'Bin code {new_code} is already in use'}), 400
+
+        # Perform update
+        updated = execute_query(
+            "UPDATE bins SET code = %s WHERE id = %s RETURNING id",
+            (new_code, bin_obj.id),
+            fetch_one=True
+        )
+
+        if updated:
+            return jsonify({'success': True, 'message': 'Bin code updated', 'old_code': bin_code, 'new_code': new_code})
+        else:
+            return jsonify({'error': 'Failed to update bin code'}), 500
+    except Exception as e:
+        logger.error(f"Error renaming bin {bin_code}: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Failed to rename bin: {str(e)}'}), 500
+
+
+@warehouses_bp.route('/api/bin/<bin_code>', methods=['DELETE'])
+@login_required
+def delete_bin(bin_code):
+    """Delete a bin if it is empty (no stock items linked)"""
+    try:
+        # Get the bin
+        bin_obj = Bin.get_by_code(bin_code)
+        if not bin_obj:
+            return jsonify({'error': 'Bin not found'}), 404
+
+        # Check for any stock items referencing this bin
+        stock_exists = execute_query(
+            "SELECT COUNT(*) AS cnt FROM stock_items WHERE bin_id = %s",
+            (bin_obj.id,),
+            fetch_one=True
+        ) or {'cnt': 0}
+        if (stock_exists.get('cnt') or 0) > 0:
+            return jsonify({'error': 'Cannot delete bin: it contains stock items'}), 400
+
+        # Safe to delete
+        deleted = execute_query(
+            "DELETE FROM bins WHERE id = %s RETURNING id",
+            (bin_obj.id,),
+            fetch_one=True
+        )
+        if deleted:
+            return jsonify({'success': True, 'message': f'Bin {bin_code} deleted'})
+        else:
+            return jsonify({'error': 'Failed to delete bin'}), 500
+    except Exception as e:
+        logger.error(f"Error deleting bin {bin_code}: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({'error': f'Failed to delete bin: {str(e)}'}), 500
+
 @warehouses_bp.route('/api/locations/search')
 @login_required
 def search_locations():

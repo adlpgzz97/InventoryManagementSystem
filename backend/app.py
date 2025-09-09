@@ -23,7 +23,8 @@ from backend.routes import (
     stock_bp, 
     warehouses_bp, 
     scanner_bp,
-    transactions_bp
+    transactions_bp,
+    bins_bp
 )
 from backend.routes.api_categories import api_categories_bp
 
@@ -107,6 +108,7 @@ def register_blueprints(app):
         app.register_blueprint(stock_bp)
         app.register_blueprint(warehouses_bp)
         app.register_blueprint(transactions_bp)
+        app.register_blueprint(bins_bp)
         
         # Scanner routes
         app.register_blueprint(scanner_bp)
