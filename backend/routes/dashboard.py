@@ -30,22 +30,23 @@ def dashboard():
     logger.info("Dashboard route accessed")
     
     try:
-        logger.info("Dashboard route - returning simple response")
+        # Build dashboard data
+        stats = get_dashboard_stats()
+        stock_distribution = get_stock_distribution()
+        warehouse_distribution = get_warehouse_distribution()
+        batch_analytics = get_batch_analytics()
+        detailed_stock_report = get_detailed_stock_report()
+        alerts = get_dashboard_alerts()
+        recent_activity = get_recent_activities()
         
-        # Return a very simple response without using current_user
-        return """
-        <html>
-        <head><title>Dashboard</title></head>
-        <body>
-            <h1>Dashboard</h1>
-            <p>Welcome to the Inventory Management System!</p>
-            <p>Dashboard is working!</p>
-            <a href="/products/">Products</a> | 
-            <a href="/warehouses/">Warehouses</a> | 
-            <a href="/stock/">Stock</a>
-        </body>
-        </html>
-        """
+        return render_template('dashboard.html',
+                             stats=stats,
+                             alerts=alerts,
+                             stock_distribution=stock_distribution,
+                             warehouse_distribution=warehouse_distribution,
+                             batch_analytics=batch_analytics,
+                             detailed_stock_report=detailed_stock_report,
+                             recent_activity=recent_activity)
                              
     except Exception as e:
         logger.error(f"Error loading dashboard: {e}")
@@ -130,26 +131,35 @@ def api_recent_activities():
 def get_dashboard_stats():
     """Get comprehensive dashboard statistics"""
     try:
-        # Get basic counts
-        products = Product.get_all()
+        # Basic counts
+        # Use a simple count to avoid any lazy/eager loading issues
+        try:
+            from backend.utils.database import execute_query
+            total_products_row = execute_query("SELECT COUNT(*) AS cnt FROM products", fetch_one=True) or {'cnt': 0}
+            total_products = int(total_products_row.get('cnt') or 0)
+        except Exception:
+            products = Product.get_all()
+            total_products = len(products)
         warehouses = Warehouse.get_all()
         
-        # Get stock summary
+        # Stock summary
         stock_summary = StockService.get_stock_summary()
         
-        # Get low stock products
-        low_stock_products = ProductService.get_low_stock_products()
+        # Get low stock products via service instance
+        low_stock_products = ProductService().get_low_stock_products()
         
-        # Get overstocked products
-        overstocked_products = ProductService.get_overstocked_products()
+        # Overstocked products not implemented in service; default to empty
+        overstocked_products = []
         
-        # Get expiring products
-        expiring_products = ProductService.get_expiring_products()
+        # Get expiring products via service instance
+        expiring_products = ProductService().get_products_with_expiring_batches() if hasattr(ProductService, 'get_products_with_expiring_batches') else []
         
         # Calculate totals
-        total_products = len(products)
+        # total_products already computed above
         total_warehouses = len(warehouses)
-        total_stock_items = stock_summary.get('total_stock_items', 0)
+        # Derive total stock items from aggregated rows to avoid zero
+        all_stock_rows = StockItem.get_all_with_locations()
+        total_stock_items = len(all_stock_rows)
         total_on_hand = stock_summary.get('total_on_hand', 0)
         total_reserved = stock_summary.get('total_reserved', 0)
         total_available = stock_summary.get('total_available', 0)
@@ -203,17 +213,16 @@ def get_dashboard_stats():
 def get_stock_distribution():
     """Get stock level distribution"""
     try:
-        stock_items = StockItem.get_all_with_locations()
-        
-        in_stock = 0
-        low_stock = 0
-        out_of_stock = 0
-        
-        for item in stock_items:
-            available = item.get('available_stock', 0)
+        # Use aggregate logic from rows: available = on_hand - qty_reserved
+        rows = StockItem.get_all_with_locations()
+        in_stock = low_stock = out_of_stock = 0
+        for row in rows:
+            on_hand = int(row.get('on_hand') or 0)
+            reserved = int(row.get('qty_reserved') or 0)
+            available = max(0, on_hand - reserved)
             if available == 0:
                 out_of_stock += 1
-            elif available <= 5:  # Low stock threshold
+            elif available <= 5:
                 low_stock += 1
             else:
                 in_stock += 1
@@ -236,26 +245,17 @@ def get_stock_distribution():
 def get_warehouse_distribution():
     """Get inventory distribution by warehouse"""
     try:
-        warehouses = Warehouse.get_all()
-        distribution = []
-        
-        for warehouse in warehouses:
-            bins = warehouse.get_bins()
-            total_items = 0
-            total_qty = 0
-            
-            for bin_obj in bins:
-                stock_items = StockItem.get_by_bin(bin_obj.id)
-                total_items += len(stock_items)
-                total_qty += sum(item.on_hand for item in stock_items)
-            
-            distribution.append({
-                'name': warehouse.name,
-                'total_items': total_items,
-                'total_qty': total_qty
-            })
-        
-        return distribution
+        # Use a single query path via StockItem.get_all_with_locations to avoid missing model methods
+        stock_rows = StockItem.get_all_with_locations()
+        aggregates = {}
+        for row in stock_rows:
+            wname = row.get('warehouse_name') or 'Unknown'
+            if wname not in aggregates:
+                aggregates[wname] = {'name': wname, 'total_items': 0, 'total_qty': 0}
+            aggregates[wname]['total_items'] += 1
+            aggregates[wname]['total_qty'] += int(row.get('on_hand') or 0)
+        # Return as list
+        return list(aggregates.values())
         
     except Exception as e:
         logger.error(f"Error getting warehouse distribution: {e}")
@@ -334,7 +334,7 @@ def get_dashboard_alerts():
         alerts = []
         
         # Low stock alerts
-        low_stock_products = ProductService.get_low_stock_products()
+        low_stock_products = ProductService().get_low_stock_products()
         if low_stock_products:
             alerts.append({
                 'type': 'warning',
@@ -345,7 +345,7 @@ def get_dashboard_alerts():
             })
         
         # Overstocked alerts
-        overstocked_products = ProductService.get_overstocked_products()
+        overstocked_products = []
         if overstocked_products:
             alerts.append({
                 'type': 'info',
@@ -356,7 +356,7 @@ def get_dashboard_alerts():
             })
         
         # Expiring products alerts
-        expiring_products = ProductService.get_expiring_products()
+        expiring_products = ProductService().get_products_with_expiring_batches() if hasattr(ProductService, 'get_products_with_expiring_batches') else []
         if expiring_products:
             alerts.append({
                 'type': 'danger',

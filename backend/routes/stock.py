@@ -10,7 +10,7 @@ import logging
 from backend.services.stock_service import StockService
 from backend.models.stock import StockItem, StockTransaction
 from backend.models.product import Product
-from backend.models.warehouse import Bin
+from backend.models.warehouse import Bin, Location
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -181,6 +181,7 @@ def edit_stock(stock_id):
         bins = Bin.get_all()
         
         return render_template('edit_stock_modal.html',
+                             stock=stock_item,
                              stock_item=stock_item,
                              products=products,
                              bins=bins)
@@ -519,3 +520,91 @@ def api_stock_transactions(stock_id):
 
 # Import datetime for date handling
 from datetime import datetime
+
+
+@stock_bp.route('/api/bin-availability')
+@login_required
+def api_bin_availability():
+    """Return bins annotated with occupancy relative to an optional product.
+
+    Response shape:
+    {
+      success: true,
+      bins: [
+        { id, code, location_code, label, is_empty, occupied_by_same_product, occupied_by_other_product }
+      ]
+    }
+    """
+    try:
+        product_id = request.args.get('product_id')
+
+        # Gather all bins
+        bins = Bin.get_all()
+
+        # Build occupancy map: bin_id -> set(product_ids)
+        bin_to_products = {}
+        try:
+            all_with_locations = StockItem.get_all_with_locations() or []
+            for row in all_with_locations:
+                b_id = str(row.get('bin_id'))
+                p_id = str(row.get('product_id')) if row.get('product_id') is not None else None
+                if not b_id or not p_id:
+                    continue
+                s = bin_to_products.setdefault(b_id, set())
+                s.add(p_id)
+        except Exception:
+            bin_to_products = {}
+
+        # Build response entries
+        result_bins = []
+        for b in bins:
+            b_id = str(b.id)
+            product_set = bin_to_products.get(b_id, set())
+
+            is_empty = len(product_set) == 0
+            occupied_by_same = bool(product_id) and (product_id in product_set)
+            occupied_by_other = (not is_empty) and (not occupied_by_same)
+
+            # Build label: Location.full_code - Bin.code, fallback to Bin.code
+            location_code = None
+            warehouse_id_val = None
+            warehouse_name = None
+            warehouse_code = None
+            try:
+                loc = Location.get_by_id(b.location_id) if getattr(b, 'location_id', None) else None
+                location_code = getattr(loc, 'full_code', None)
+                warehouse_id_val = getattr(loc, 'warehouse_id', None) if loc else None
+                if warehouse_id_val:
+                    try:
+                        from backend.models.warehouse import Warehouse
+                        wh = Warehouse.get_by_id(warehouse_id_val)
+                        if wh:
+                            warehouse_name = getattr(wh, 'name', None)
+                            warehouse_code = getattr(wh, 'code', None)
+                    except Exception:
+                        pass
+            except Exception:
+                location_code = None
+            label = f"{location_code} - {b.code}" if location_code else b.code
+
+            result_bins.append({
+                'id': b_id,
+                'code': b.code,
+                'location_id': str(getattr(b, 'location_id', '') or ''),
+                'location_code': location_code,
+                'warehouse_id': str(warehouse_id_val or ''),
+                'warehouse_name': warehouse_name,
+                'warehouse_code': warehouse_code,
+                'label': label,
+                'is_empty': is_empty,
+                'occupied_by_same_product': occupied_by_same,
+                'occupied_by_other_product': occupied_by_other,
+            })
+
+        return jsonify({
+            'success': True,
+            'bins': result_bins
+        })
+    except Exception as e:
+        logger.error(f"Error computing bin availability: {e}")
+        return jsonify({'success': False, 'error': 'Failed to compute bin availability'}), 500

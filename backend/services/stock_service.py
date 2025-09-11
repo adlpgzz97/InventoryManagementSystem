@@ -5,7 +5,7 @@ Handles complex stock operations, business logic, and stock management workflows
 
 from typing import Optional, Dict, Any, List
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from backend.models.stock import StockItem, StockTransaction
 from backend.models.product import Product
@@ -156,6 +156,7 @@ class StockService:
     
     @staticmethod
     def move_stock(source_stock_id: str, dest_bin_id: str, quantity: int, 
+                   reserved_quantity: int = 0,
                    user_id: str = None, notes: str = None) -> Dict[str, Any]:
         """Move stock from one bin to another"""
         try:
@@ -164,11 +165,15 @@ class StockService:
             if not source_stock:
                 raise Exception("Source stock item not found")
             
+            if quantity < 0 or reserved_quantity < 0:
+                raise Exception("Quantities must be non-negative")
             if source_stock.available_stock < quantity:
-                raise Exception(f"Insufficient stock. Available: {source_stock.available_stock}, Requested: {quantity}")
+                raise Exception(f"Insufficient available stock. Available: {source_stock.available_stock}, Requested: {quantity}")
+            if source_stock.qty_reserved < reserved_quantity:
+                raise Exception(f"Insufficient reserved stock. Reserved: {source_stock.qty_reserved}, Requested: {reserved_quantity}")
             
             # Check if destination bin exists
-            from models.warehouse import Bin
+            from backend.models.warehouse import Bin
             dest_bin = Bin.get_by_id(dest_bin_id)
             if not dest_bin:
                 raise Exception("Destination bin not found")
@@ -177,26 +182,25 @@ class StockService:
             dest_stock = StockItem.get_by_product_and_bin(source_stock.product_id, dest_bin_id)
             
             # Calculate new quantities
-            new_source_available = source_stock.on_hand - quantity
+            prev_source_on_hand = source_stock.on_hand
+            prev_source_reserved = source_stock.qty_reserved
+            new_source_on_hand = max(0, prev_source_on_hand - quantity)
+            new_source_reserved = max(0, prev_source_reserved - reserved_quantity)
+            new_source_available = max(0, new_source_on_hand - new_source_reserved)
             source_will_be_empty = new_source_available == 0
             
             # Update source stock
-            if source_will_be_empty:
-                # Delete source stock item entirely
-                success = source_stock.delete()
-                if not success:
-                    raise Exception("Failed to delete source stock item")
-            else:
-                # Update source stock quantities
-                success = source_stock.update_stock(on_hand=new_source_available)
-                if not success:
-                    raise Exception("Failed to update source stock")
+            # Always update source to reflect new on_hand (do not delete to preserve referential integrity)
+            success = source_stock.update_stock(on_hand=new_source_on_hand, qty_reserved=new_source_reserved)
+            if not success:
+                raise Exception("Failed to update source stock")
             
             # Handle destination stock
             if dest_stock:
                 # Add to existing stock in destination
-                new_dest_available = dest_stock.on_hand + quantity
-                success = dest_stock.update_stock(on_hand=new_dest_available)
+                new_dest_on_hand = dest_stock.on_hand + quantity
+                new_dest_reserved = (dest_stock.qty_reserved or 0) + reserved_quantity
+                success = dest_stock.update_stock(on_hand=new_dest_on_hand, qty_reserved=new_dest_reserved)
                 if not success:
                     raise Exception("Failed to update destination stock")
                 dest_stock_id = dest_stock.id
@@ -206,7 +210,7 @@ class StockService:
                     product_id=source_stock.product_id,
                     bin_id=dest_bin_id,
                     on_hand=quantity,
-                    qty_reserved=0,
+                    qty_reserved=reserved_quantity,
                     batch_id=source_stock.batch_id,
                     expiry_date=source_stock.expiry_date
                 )
@@ -223,7 +227,7 @@ class StockService:
                     stock_item_id=source_stock_id,
                     transaction_type='adjust',
                     quantity_change=-quantity,
-                    quantity_before=source_stock.on_hand + source_stock.qty_reserved,
+                    quantity_before=prev_source_on_hand + prev_source_reserved,
                     quantity_after=0,
                     notes=transaction_notes + " (Deallocated)",
                     user_id=user_id
@@ -233,19 +237,19 @@ class StockService:
                     stock_item_id=source_stock_id,
                     transaction_type='transfer',
                     quantity_change=-quantity,
-                    quantity_before=source_stock.on_hand + source_stock.qty_reserved,
-                    quantity_after=new_source_available + source_stock.qty_reserved,
+                    quantity_before=prev_source_on_hand + prev_source_reserved,
+                    quantity_after=new_source_available + prev_source_reserved,
                     notes=transaction_notes,
                     user_id=user_id
                 )
             
             # Destination transaction
             if dest_stock:
-                dest_quantity_before = dest_stock.on_hand + dest_stock.qty_reserved
-                dest_quantity_after = new_dest_available + dest_stock.qty_reserved
+                dest_quantity_before = (dest_stock.on_hand or 0) + (dest_stock.qty_reserved or 0)
+                dest_quantity_after = (dest_stock.on_hand or 0) + quantity + (dest_stock.qty_reserved or 0) + reserved_quantity
             else:
                 dest_quantity_before = 0
-                dest_quantity_after = quantity
+                dest_quantity_after = quantity + reserved_quantity
             
             StockService.log_stock_transaction(
                 stock_item_id=dest_stock_id,
@@ -262,6 +266,7 @@ class StockService:
                 'source_stock_id': source_stock_id,
                 'dest_stock_id': dest_stock_id,
                 'quantity': quantity,
+                'reserved_quantity': reserved_quantity,
                 'source_deallocated': source_will_be_empty
             }
             
@@ -290,11 +295,15 @@ class StockService:
                 for item in batch_items:
                     if item.get('expiry_date'):
                         try:
-                            if isinstance(item['expiry_date'], str):
-                                expiry_date = datetime.strptime(item['expiry_date'], '%Y-%m-%d').date()
+                            raw = item['expiry_date']
+                            if isinstance(raw, str):
+                                expiry_date = datetime.strptime(raw, '%Y-%m-%d').date()
+                            elif isinstance(raw, datetime):
+                                expiry_date = raw.date()
+                            elif isinstance(raw, date):
+                                expiry_date = raw
                             else:
-                                expiry_date = item['expiry_date'].date()
-                            
+                                continue
                             if month_start <= expiry_date < month_end:
                                 count += 1
                         except (ValueError, TypeError):
@@ -308,13 +317,17 @@ class StockService:
                     no_expiry += 1
                 else:
                     try:
-                        if isinstance(item['expiry_date'], str):
-                            expiry_date = datetime.strptime(item['expiry_date'], '%Y-%m-%d').date()
+                        raw = item['expiry_date']
+                        if isinstance(raw, str):
+                            expiry_date = datetime.strptime(raw, '%Y-%m-%d').date()
+                        elif isinstance(raw, datetime):
+                            expiry_date = raw.date()
+                        elif isinstance(raw, date):
+                            expiry_date = raw
                         else:
-                            expiry_date = item['expiry_date'].date()
-                        
+                            no_expiry += 1
+                            continue
                         days_to_expiry = (expiry_date - today).days
-                        
                         if days_to_expiry < 0:
                             expired += 1
                         elif days_to_expiry <= 30:
@@ -357,19 +370,34 @@ class StockService:
                     stock_items.extend(StockItem.get_by_product(product.id))
                 product_name = "All Products"
             
-            total_on_hand = sum(item.on_hand for item in stock_items)
-            total_reserved = sum(item.qty_reserved for item in stock_items)
-            total_available = sum(item.available_stock for item in stock_items)
-            
-            # Count low stock items
-            low_stock_count = 0
+            total_on_hand = sum((item.on_hand or 0) for item in stock_items)
+            total_reserved = sum((item.qty_reserved or 0) for item in stock_items)
+            total_available = sum(((item.on_hand or 0) - (item.qty_reserved or 0)) for item in stock_items)
+
+            # Count low stock items using a simple threshold on available
+            LOW_STOCK_THRESHOLD = 5
+            low_stock_count = sum(1 for item in stock_items if ((item.on_hand or 0) - (item.qty_reserved or 0)) <= LOW_STOCK_THRESHOLD)
+
+            # Count expired items safely
+            expired_count = 0
+            today = datetime.now().date()
             for item in stock_items:
-                product = Product.get_by_id(item.product_id)
-                if product and product.is_low_stock():
-                    low_stock_count += 1
-            
-            # Count expired items
-            expired_count = sum(1 for item in stock_items if item.is_expired())
+                raw = getattr(item, 'expiry_date', None)
+                if not raw:
+                    continue
+                try:
+                    if isinstance(raw, str):
+                        exp = datetime.strptime(raw, '%Y-%m-%d').date()
+                    elif isinstance(raw, datetime):
+                        exp = raw.date()
+                    elif isinstance(raw, date):
+                        exp = raw
+                    else:
+                        continue
+                    if exp < today:
+                        expired_count += 1
+                except Exception:
+                    continue
             
             return {
                 'product_name': product_name,
@@ -397,24 +425,8 @@ class StockService:
     def reserve_stock(stock_item_id: str, quantity: int, user_id: str = None) -> bool:
         """Reserve stock quantity"""
         try:
-            stock_item = StockItem.get_by_id(stock_item_id)
-            if not stock_item:
-                raise Exception("Stock item not found")
-            
-            success = stock_item.reserve_stock(quantity)
-            if success:
-                # Log transaction
-                StockService.log_stock_transaction(
-                    stock_item_id=stock_item_id,
-                    transaction_type='reserve',
-                    quantity_change=quantity,
-                    quantity_before=stock_item.on_hand,
-                    quantity_after=stock_item.on_hand,
-                    notes=f"Stock reserved: {quantity} units",
-                    user_id=user_id
-                )
-            
-            return success
+            repo = StockRepository()
+            return repo.reserve_stock(stock_item_id, quantity, user_id)
             
         except Exception as e:
             logger.error(f"Error reserving stock: {e}")
@@ -424,24 +436,8 @@ class StockService:
     def release_reserved_stock(stock_item_id: str, quantity: int, user_id: str = None) -> bool:
         """Release reserved stock quantity"""
         try:
-            stock_item = StockItem.get_by_id(stock_item_id)
-            if not stock_item:
-                raise Exception("Stock item not found")
-            
-            success = stock_item.release_reserved_stock(quantity)
-            if success:
-                # Log transaction
-                StockService.log_stock_transaction(
-                    stock_item_id=stock_item_id,
-                    transaction_type='release',
-                    quantity_change=-quantity,
-                    quantity_before=stock_item.on_hand,
-                    quantity_after=stock_item.on_hand,
-                    notes=f"Stock released: {quantity} units",
-                    user_id=user_id
-                )
-            
-            return success
+            repo = StockRepository()
+            return repo.release_stock(stock_item_id, quantity, user_id)
             
         except Exception as e:
             logger.error(f"Error releasing reserved stock: {e}")

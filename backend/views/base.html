@@ -343,6 +343,8 @@
     
     document.addEventListener('DOMContentLoaded', function() {
         try {
+            // Provide a safe default for legacy code paths
+            window.isEditMode = window.isEditMode || false;
             // Restore filter state if preserved
             restoreFilterState();
             
@@ -431,13 +433,21 @@
         const editModalBody = document.getElementById('editModalBody');
         const editModalLabel = document.getElementById('editModalLabel');
 
-        // Edit button click handler
+        // Edit button click handler (override for stock to show Bin Details modal)
         document.addEventListener('click', function(e) {
             if (e.target.classList.contains('edit-btn') || e.target.closest('.edit-btn')) {
                 e.preventDefault();
                 const btn = e.target.classList.contains('edit-btn') ? e.target : e.target.closest('.edit-btn');
                 const itemType = btn.getAttribute('data-type');
                 const itemId = btn.getAttribute('data-id');
+                
+                if (itemType === 'stock') {
+                    const binCode = btn.getAttribute('data-bin-code');
+                    if (binCode && window.binDetailsManager) {
+                        window.binDetailsManager.showBinDetails(binCode);
+                        return;
+                    }
+                }
                 
                 if (itemType && itemId) {
                     loadEditModal(itemType, itemId);
@@ -511,6 +521,8 @@
                             submitModalForm(form, modal);
                         });
                     }
+                    // Initialize stock modal behaviors (bin filtering) if present
+                    initializeStockModal(editModalBody);
                     
                     // Warehouse modal functionality is now handled within the modal HTML files
                     // No additional initialization needed
@@ -558,6 +570,8 @@
                             submitModalForm(form, modal);
                         });
                     }
+                    // Initialize stock modal behaviors (bin filtering) if present
+                    initializeStockModal(editModalBody);
                     
                     // Warehouse modal functionality is now handled within the modal HTML files
                     // No additional initialization needed
@@ -565,6 +579,99 @@
                 .catch(error => {
                     editModalBody.innerHTML = `<div class="alert alert-danger">Error loading form: ${error.message}</div>`;
                 });
+        }
+
+        // Initialize Add/Edit Stock modal JS for injected content
+        function initializeStockModal(rootNode) {
+            try {
+                const container = rootNode || document;
+                const productSelect = container.querySelector('#product_id');
+                const binSelect = container.querySelector('#bin_id');
+                const toggleMode = container.querySelector('#toggle-mode');
+                const toggleContainer = container.querySelector('#bin-toggle-container');
+                const hint = container.querySelector('#bin-help');
+
+                if (!binSelect) return; // Not a stock modal
+
+                function escapeHtml(str) {
+                    return String(str || '').replace(/[&<>"]/g, function(c) {
+                        return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]);
+                    });
+                }
+
+                function updateToggleAvailability() {
+                    const hasProduct = !!(productSelect && productSelect.value);
+                    if (toggleContainer) toggleContainer.style.display = hasProduct ? 'block' : 'none';
+                    if (toggleMode) {
+                        toggleMode.disabled = !hasProduct;
+                        if (!hasProduct) toggleMode.checked = false;
+                    }
+                    if (hint) {
+                        hint.textContent = hasProduct
+                            ? 'Toggle on: only bins with this product. Toggle off: only empty bins. Bins occupied by other products are hidden.'
+                            : 'Select a product to enable showing bins with this product. Default shows only empty bins.';
+                    }
+                }
+
+                function refreshBinsForSelection() {
+                    const selectedProduct = productSelect ? productSelect.value : '';
+                    const showSameOnly = toggleMode ? !!toggleMode.checked : false; // on = same-product; off = empty
+
+                    const previous = binSelect.value;
+                    const url = new URL('/stock/api/bin-availability', window.location.origin);
+                    if (selectedProduct) url.searchParams.set('product_id', selectedProduct);
+
+                    fetch(url.toString())
+                        .then(r => r.json())
+                        .then(data => {
+                            if (!data || !data.success) throw new Error((data && (data.error || data.message)) || 'Failed to load bins');
+                            const bins = Array.isArray(data.bins) ? data.bins : [];
+
+                            const filtered = bins.filter(b => {
+                                if (!b.location_id) return false; // require location assignment
+                                if (b.occupied_by_other_product) return false; // always hide others
+                                if (!selectedProduct) return !!b.is_empty; // before selection, show empties only
+                                return showSameOnly ? !!b.occupied_by_same_product : !!b.is_empty;
+                            });
+
+                            const options = ['<option value="">Select Storage Bin</option>']
+                                .concat(filtered.map(b => {
+                                    const codeText = (b.code && String(b.code).trim()) ? b.code : `Bin ${b.id}`;
+                                    const locText = (b.location_code && String(b.location_code).trim()) ? ` - ${b.location_code}` : '';
+                                    return `<option value="${b.id}">${escapeHtml(codeText + locText)}</option>`;
+                                }));
+                            binSelect.innerHTML = options.join('');
+
+                            if (previous && filtered.some(b => String(b.id) === String(previous))) {
+                                binSelect.value = previous;
+                            } else {
+                                binSelect.value = '';
+                            }
+                        })
+                        .catch(err => {
+                            console.error('Failed to refresh bins:', err);
+                        });
+                }
+
+                // Wire events
+                if (productSelect) {
+                    productSelect.addEventListener('change', function() {
+                        updateToggleAvailability();
+                        refreshBinsForSelection();
+                    });
+                }
+                if (toggleMode) {
+                    toggleMode.addEventListener('change', refreshBinsForSelection);
+                }
+
+                // Initialize
+                updateToggleAvailability();
+                // Clear server-rendered options to avoid showing unfiltered list
+                binSelect.innerHTML = '<option value="">Select Storage Bin</option>';
+                refreshBinsForSelection();
+            } catch (e) {
+                console.error('initializeStockModal error:', e);
+            }
         }
 
         // Submit modal form
@@ -633,6 +740,142 @@
             .catch(error => {
                 alert('Error deleting item: ' + error.message);
             });
+        }
+
+        // Category creation from within product modals (delegated handlers)
+        // Inline <script> inside injected modal HTML does not execute, so wire here
+        if (editModalBody) {
+            editModalBody.addEventListener('click', function(e) {
+                const addBtn = e.target.closest('#add-category-btn');
+                if (addBtn) {
+                    e.preventDefault();
+                    showAddCategoryModal();
+                }
+            });
+        }
+
+        function showAddCategoryModal() {
+            // Build modal HTML
+            const modalHtml = `
+                <div class="modal fade" id="addCategoryModal" tabindex="-1">
+                    <div class="modal-dialog">
+                        <div class="modal-content">
+                            <div class="modal-header">
+                                <h5 class="modal-title"><i class="fas fa-plus me-2"></i>Add New Category</h5>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body">
+                                <form id="addCategoryForm">
+                                    <div class="mb-3">
+                                        <label for="category_code" class="form-label">Category Code <span class="text-danger">*</span></label>
+                                        <input type="text" class="form-control" id="category_code" name="code" placeholder="e.g., ELECTRONICS" required>
+                                        <small class="form-text text-muted">Use uppercase letters, numbers, and underscores only</small>
+                                    </div>
+                                    <div class="mb-3">
+                                        <label for="category_description" class="form-label">Description</label>
+                                        <input type="text" class="form-control" id="category_description" name="description" placeholder="e.g., Electronic devices and components">
+                                    </div>
+                                </form>
+                                <div id="addCategoryFeedback"></div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="button" class="btn btn-primary" id="save-category-btn">
+                                    <i class="fas fa-save me-2"></i>Save Category
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+
+            // Remove existing if present
+            const existing = document.getElementById('addCategoryModal');
+            if (existing) existing.remove();
+
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            const modalEl = document.getElementById('addCategoryModal');
+            const modal = new bootstrap.Modal(modalEl);
+            modal.show();
+
+            // Wire actions
+            modalEl.querySelector('#save-category-btn').addEventListener('click', function() {
+                saveNewCategory(modal);
+            });
+            modalEl.querySelector('#addCategoryForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                saveNewCategory(modal);
+            });
+        }
+
+        function saveNewCategory(modalInstance) {
+            const codeInput = document.getElementById('category_code');
+            const descInput = document.getElementById('category_description');
+            const feedback = document.getElementById('addCategoryFeedback');
+
+            const rawCode = (codeInput?.value || '').trim().toUpperCase();
+            const description = (descInput?.value || '').trim();
+
+            if (!rawCode) {
+                alert('Please enter a category code.');
+                return;
+            }
+            if (!/^[A-Z0-9_]+$/.test(rawCode)) {
+                alert('Category code must contain only uppercase letters, numbers, and underscores.');
+                return;
+            }
+
+            const saveBtn = document.getElementById('save-category-btn');
+            const originalHtml = saveBtn.innerHTML;
+            saveBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-2"></i>Saving...';
+            saveBtn.disabled = true;
+
+            fetch('/api/categories', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code: rawCode, description: description })
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data && data.success && data.category) {
+                        // Close modal
+                        modalInstance.hide();
+
+                        // Update the category dropdown in the current product modal
+                        const categorySelect = editModalBody ? editModalBody.querySelector('#category_id') : null;
+                        if (categorySelect) {
+                            const label = data.category.description || data.category.code;
+                            let opt = categorySelect.querySelector(`option[value="${data.category.id}"]`);
+                            if (!opt) {
+                                opt = document.createElement('option');
+                                opt.value = data.category.id;
+                                opt.textContent = label;
+                                categorySelect.appendChild(opt);
+                            }
+                            categorySelect.value = data.category.id;
+                            categorySelect.dispatchEvent(new Event('change'));
+                        }
+
+                        // Show success alert near the form inside the product modal
+                        const productForm = editModalBody ? (editModalBody.querySelector('#addProductForm') || editModalBody.querySelector('#editProductForm')) : null;
+                        if (productForm) {
+                            const alertDiv = document.createElement('div');
+                            alertDiv.className = 'alert alert-success alert-dismissible fade show mt-2';
+                            alertDiv.innerHTML = `<i class="fas fa-check-circle me-2"></i>Category "${rawCode}" created and selected.<button type="button" class="btn-close" data-bs-dismiss="alert"></button>`;
+                            productForm.insertAdjacentElement('afterend', alertDiv);
+                            setTimeout(() => { alertDiv.remove(); }, 4000);
+                        }
+                    } else {
+                        const msg = (data && (data.error || data.message)) || 'Failed to create category';
+                        feedback.innerHTML = `<div class="alert alert-danger">${msg}</div>`;
+                    }
+                })
+                .catch(err => {
+                    feedback.innerHTML = `<div class="alert alert-danger">Error creating category: ${err.message}</div>`;
+                })
+                .finally(() => {
+                    saveBtn.innerHTML = originalHtml;
+                    saveBtn.disabled = false;
+                });
         }
 
         // Preserve filter state and reload page
@@ -1179,6 +1422,31 @@
                 });
             }
         // }
+
+        // Ensure BinDetailsManager is available when bin details modal is present
+        try {
+            const ensureBinManager = () => {
+                const hasBinDetailsModal = !!document.getElementById('binDetailsModal');
+                if (hasBinDetailsModal && !window.binDetailsManager && typeof BinDetailsManager !== 'undefined') {
+                    window.binDetailsManager = new BinDetailsManager();
+                    return true;
+                }
+                return false;
+            };
+            // Try immediately, then poll briefly in case the modal script loads later
+            if (!ensureBinManager()) {
+                let attempts = 0;
+                const maxAttempts = 20; // ~4s
+                const timer = setInterval(() => {
+                    attempts += 1;
+                    if (ensureBinManager() || attempts >= maxAttempts) {
+                        clearInterval(timer);
+                    }
+                }, 200);
+            }
+        } catch (e) {
+            console.error('Failed to initialize BinDetailsManager:', e);
+        }
     });
     </script>
     {% block modals %}{% endblock %}

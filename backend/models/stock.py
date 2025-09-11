@@ -300,6 +300,39 @@ class StockItem(BaseModel):
             logger.error(f"Error deleting stock item {self.id}: {e}")
             return False
 
+    def update_stock(self, on_hand: int = None, qty_reserved: int = None) -> bool:
+        """Update on_hand and/or qty_reserved safely for this stock item."""
+        try:
+            fields = []
+            params = []
+            if on_hand is not None:
+                on_hand = max(0, int(on_hand))
+                fields.append("on_hand = %s")
+                params.append(on_hand)
+            if qty_reserved is not None:
+                qty_reserved = max(0, int(qty_reserved))
+                fields.append("qty_reserved = %s")
+                params.append(qty_reserved)
+            if not fields:
+                return False
+            params.append(self.id)
+            query = f"""
+                UPDATE stock_items
+                SET {', '.join(fields)}
+                WHERE id = %s
+                RETURNING id, on_hand, qty_reserved
+            """
+            result = execute_query(query, tuple(params), fetch_one=True)
+            if result:
+                # Refresh in-memory values
+                self.on_hand = result.get('on_hand', self.on_hand)
+                self.qty_reserved = result.get('qty_reserved', self.qty_reserved)
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"Error updating stock quantities for {self.id}: {e}")
+            return False
+
 
 class StockTransaction(BaseModel):
     """Stock transaction model - data container only"""

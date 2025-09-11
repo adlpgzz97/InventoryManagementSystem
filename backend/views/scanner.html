@@ -704,7 +704,13 @@ class WarehouseScanner {
         this.showLoading();
         
         try {
-            const response = await fetch(`/api/bin/${binCode}`);
+            // Validate format: bin codes are like B####
+            const isBinCode = /^B\d+$/i.test(binCode);
+            if (!isBinCode) {
+                this.showError('Scanned code does not look like a bin code. Please scan a bin (e.g., B0123).');
+                return;
+            }
+            const response = await fetch(`/scanner/api/bin/${binCode}`);
             const data = await response.json();
             
             if (response.ok) {

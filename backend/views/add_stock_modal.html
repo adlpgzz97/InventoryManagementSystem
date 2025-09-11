@@ -35,10 +35,15 @@
                     <option value="">Select Storage Bin</option>
                     {% for bin in bins %}
                     <option value="{{ bin.id }}">
-                        {{ bin.display_name }}
+                        {{ bin.code }}
                     </option>
                     {% endfor %}
                 </select>
+                <div class="form-check mt-2" id="bin-toggle-container" style="display: none;">
+                    <input class="form-check-input" type="checkbox" id="toggle-mode">
+                    <label class="form-check-label" for="toggle-mode">Show bins with this product</label>
+                </div>
+                <small id="bin-help" class="form-text text-muted">Toggle on: only bins with this product. Toggle off: only empty bins. Bins occupied by other products are hidden.</small>
                 {% if not bins %}
                 <small class="form-text text-warning">
                     <i class="fas fa-exclamation-triangle me-1"></i>
@@ -110,6 +115,8 @@
 <script>
 document.addEventListener('DOMContentLoaded', function() {
     const productSelect = document.getElementById('product_id');
+    const binSelect = document.getElementById('bin_id');
+    const toggleMode = document.getElementById('toggle-mode');
     const batchFields = document.getElementById('batch-tracking-fields');
     const batchIdInput = document.getElementById('batch_id');
     
@@ -145,10 +152,105 @@ document.addEventListener('DOMContentLoaded', function() {
         batchFields.appendChild(alert);
     }
     
+    // Simple HTML escape for labels
+    function escapeHtml(str) {
+        return String(str || '').replace(/[&<>"]/g, function(c) {
+            return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]);
+        });
+    }
+
+    function updateToggleAvailability() {
+        const toggleContainer = document.getElementById('bin-toggle-container');
+        const hasProduct = !!(productSelect && productSelect.value);
+        
+        if (toggleContainer) {
+            toggleContainer.style.display = hasProduct ? 'block' : 'none';
+        }
+        
+        if (toggleMode) {
+            toggleMode.disabled = !hasProduct;
+            if (!hasProduct) {
+                toggleMode.checked = false; // default to empty mode
+            }
+        }
+        
+        const hint = document.getElementById('bin-help');
+        if (hint) {
+            hint.textContent = hasProduct
+                ? 'Toggle on: only bins with this product. Toggle off: only empty bins. Bins occupied by other products are hidden.'
+                : 'Select a product to enable showing bins with this product. Default shows only empty bins.';
+        }
+    }
+
+    // Fetch and render bins based on toggles and product selection
+    function refreshBinsForSelection() {
+        if (!binSelect) return;
+        const selectedProduct = productSelect ? productSelect.value : '';
+        const showSameOnly = toggleMode ? toggleMode.checked : false; // on = same-product; off = empty
+
+        // Preserve current selection
+        const previous = binSelect.value;
+
+        const url = new URL('/stock/api/bin-availability', window.location.origin);
+        if (selectedProduct) url.searchParams.set('product_id', selectedProduct);
+
+        fetch(url.toString())
+            .then(r => r.json())
+            .then(data => {
+                if (!data || !data.success) throw new Error(data && data.error ? data.error : 'Failed to load bins');
+                const bins = Array.isArray(data.bins) ? data.bins : [];
+
+                const filtered = bins.filter(b => {
+                    // Require a location assignment
+                    if (!b.location_id) return false;
+                    // Always hide bins occupied by other products
+                    if (b.occupied_by_other_product) return false;
+                    
+                    // If no product selected, only show empty bins
+                    if (!selectedProduct) {
+                        return !!b.is_empty;
+                    }
+                    
+                    // If product selected, use toggle to determine what to show
+                    if (showSameOnly) {
+                        return !!b.occupied_by_same_product;
+                    } else {
+                        return !!b.is_empty;
+                    }
+                });
+
+                // Rebuild options (code first, then location; no UUIDs)
+                const options = ['<option value="">Select Storage Bin</option>']
+                    .concat(filtered.map(b => {
+                        const codeText = (b.code && String(b.code).trim()) ? b.code : `Bin ${b.id}`;
+                        const locText = (b.location_code && String(b.location_code).trim()) ? ` - ${b.location_code}` : '';
+                        return `<option value="${b.id}">${escapeHtml(codeText + locText)}</option>`;
+                    }));
+                binSelect.innerHTML = options.join('');
+
+                if (previous && filtered.some(b => b.id === previous)) {
+                    binSelect.value = previous;
+                } else {
+                    binSelect.value = '';
+                }
+            })
+            .catch(err => {
+                console.error('Failed to refresh bins:', err);
+            });
+    }
+    
     productSelect.addEventListener('change', toggleBatchFields);
+    productSelect.addEventListener('change', () => { updateToggleAvailability(); refreshBinsForSelection(); });
+    toggleMode?.addEventListener('change', refreshBinsForSelection);
     
     // Initialize on page load
     toggleBatchFields();
+    updateToggleAvailability();
+    // Clear initial server-rendered options and load filtered bins
+    if (binSelect) {
+        binSelect.innerHTML = '<option value="">Select Storage Bin</option>';
+    }
+    refreshBinsForSelection();
     
     // Barcode scanning integration
     const scanProductBtn = document.getElementById('scan-product-barcode');
@@ -165,6 +267,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         document.getElementById('product_id').value = option.value;
                         productFound = true;
                         toggleBatchFields(); // Update batch fields for selected product
+                        updateToggleAvailability();
+                        refreshBinsForSelection();
                         
                         // Show success feedback
                         const alertDiv = document.createElement('div');
@@ -209,5 +313,6 @@ document.addEventListener('DOMContentLoaded', function() {
             });
         });
     }
+
 });
 </script>

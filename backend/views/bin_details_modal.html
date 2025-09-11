@@ -250,11 +250,14 @@
                             <i class="fas fa-arrow-right fa-2x text-primary"></i>
                             <div class="mt-2">
                                 <label class="form-label">Quantity to Move</label>
+                                <div class="input-group mb-2">
+                                    <input type="number" class="form-control" id="moveQuantity" min="0" value="0">
+                                    <button class="btn btn-outline-secondary" type="button" id="moveAllStock">All Stock</button>
+                                </div>
+                                <label class="form-label">Reserved to Move</label>
                                 <div class="input-group">
-                                    <input type="number" class="form-control" id="moveQuantity" min="1" value="1">
-                                    <button class="btn btn-outline-secondary" type="button" id="moveAllStock">
-                                        All Stock
-                                    </button>
+                                    <input type="number" class="form-control" id="moveReservedQuantity" min="0" value="0">
+                                    <button class="btn btn-outline-secondary" type="button" id="moveAllReserved">All Reserved</button>
                                 </div>
                             </div>
                         </div>
@@ -269,19 +272,17 @@
                             <div class="card-body">
                                 <div class="mb-3">
                                     <label class="form-label">Destination Bin *</label>
-                                    <div class="position-relative">
-                                        <input type="text" 
-                                               class="form-control" 
-                                               id="moveDestinationBinInput" 
-                                               placeholder="Type bin code or scan barcode..."
-                                               autocomplete="off"
-                                               required>
-                                        <div id="destinationBinAutocomplete" class="autocomplete-dropdown" style="display: none;"></div>
-                                    </div>
+                                    <select id="moveDestinationBinSelect" class="form-select" required>
+                                        <option value="">Select Destination Bin</option>
+                                    </select>
                                     <input type="hidden" id="moveDestinationBinId" value="">
+                                    <div class="form-check form-switch mt-2" id="moveShowSameProductContainer" style="display:none;">
+                                        <input class="form-check-input" type="checkbox" id="moveShowSameProduct">
+                                        <label class="form-check-label" for="moveShowSameProduct">Show bins with this product</label>
+                                    </div>
                                     <div class="form-text">
                                         <i class="fas fa-info-circle me-1"></i>
-                                        Type to search bins or scan a bin barcode
+                                        Select an eligible bin (requires location; hides bins occupied by other products). Toggle to choose empty bins vs. bins with this product.
                                     </div>
                                 </div>
                                 <div class="mb-3">
@@ -479,41 +480,36 @@ class BinDetailsManager {
     
     initializeEventListeners() {
         // Handle transaction submission
-        document.getElementById('submitTransaction').addEventListener('click', () => {
-            this.submitTransaction();
-        });
+        const submitTxn = document.getElementById('submitTransaction');
+        if (submitTxn) submitTxn.addEventListener('click', () => this.submitTransaction());
         
         // Handle assign stock submission
-        document.getElementById('submitAssignStock').addEventListener('click', () => {
-            this.submitAssignStock();
-        });
+        const submitAssign = document.getElementById('submitAssignStock');
+        if (submitAssign) submitAssign.addEventListener('click', () => this.submitAssignStock());
         
         // Handle change location submission
-        document.getElementById('submitChangeLocation').addEventListener('click', () => {
-            this.submitChangeLocation();
-        });
+        const submitChangeLoc = document.getElementById('submitChangeLocation');
+        if (submitChangeLoc) submitChangeLoc.addEventListener('click', () => this.submitChangeLocation());
         
         // Handle move stock submission
-        document.getElementById('submitMoveStock').addEventListener('click', () => {
-            this.submitMoveStock();
-        });
+        const submitMove = document.getElementById('submitMoveStock');
+        if (submitMove) submitMove.addEventListener('click', () => this.submitMoveStock());
         
         // Handle "All Stock" button
-        document.getElementById('moveAllStock').addEventListener('click', () => {
-            this.setMoveAllStock();
-        });
+        const moveAll = document.getElementById('moveAllStock');
+        if (moveAll) moveAll.addEventListener('click', () => this.setMoveAllStock());
+        // Handle "All Reserved" button
+        const moveAllReserved = document.getElementById('moveAllReserved');
+        if (moveAllReserved) moveAllReserved.addEventListener('click', () => this.setMoveAllReserved());
         
         // Handle location search input
-        document.getElementById('changeLocationInput').addEventListener('input', (e) => {
-            this.searchLocations(e.target.value);
-        });
-        
-        // Handle location input focus
-        document.getElementById('changeLocationInput').addEventListener('focus', (e) => {
-            if (e.target.value.length > 0) {
-                this.searchLocations(e.target.value);
-            }
-        });
+        const changeLocInput = document.getElementById('changeLocationInput');
+        if (changeLocInput) {
+            changeLocInput.addEventListener('input', (e) => this.searchLocations(e.target.value));
+            changeLocInput.addEventListener('focus', (e) => {
+                if (e.target.value.length > 0) this.searchLocations(e.target.value);
+            });
+        }
         
         // Handle clicks outside autocomplete dropdown
         document.addEventListener('click', (e) => {
@@ -523,13 +519,11 @@ class BinDetailsManager {
         });
         
         // Handle modal cleanup when modals are closed
-        document.getElementById('changeLocationModal').addEventListener('hidden.bs.modal', () => {
-            this.cleanupModalBackdrop();
-        });
+        const changeLocModalEl = document.getElementById('changeLocationModal');
+        if (changeLocModalEl) changeLocModalEl.addEventListener('hidden.bs.modal', () => this.cleanupModalBackdrop());
         
-        document.getElementById('successModal').addEventListener('hidden.bs.modal', () => {
-            this.cleanupModalBackdrop();
-        });
+        const successModalEl = document.getElementById('successModal');
+        if (successModalEl) successModalEl.addEventListener('hidden.bs.modal', () => this.cleanupModalBackdrop());
         
         // Handle action button clicks using event delegation
         document.addEventListener('click', (e) => {
@@ -636,7 +630,8 @@ class BinDetailsManager {
             const card = document.createElement('div');
             card.className = 'stock-item-card';
             
-            const statusClass = this.getStatusClass(item.on_hand);
+            const availableVal = Math.max(0, Number(item.on_hand || 0) - Number(item.qty_reserved || 0));
+            const statusClass = this.getStatusClass(availableVal);
             
             card.innerHTML = `
                 <div class="row align-items-center">
@@ -649,7 +644,7 @@ class BinDetailsManager {
                         <div class="d-flex align-items-center">
                             <span class="status-indicator ${statusClass}"></span>
                             <div>
-                                <div><strong>Available:</strong> ${item.on_hand}</div>
+                                <div><strong>Available:</strong> ${availableVal}</div>
                                 <div><strong>Reserved:</strong> ${item.qty_reserved}</div>
                                 <div><strong>Total:</strong> ${item.total_qty}</div>
                             </div>
@@ -668,6 +663,9 @@ class BinDetailsManager {
                             </button>
                             <button class="action-btn btn-move" data-action="transfer" data-stock-id="${item.id}" data-product-name="${item.product_name}">
                                 <i class="fas fa-arrows-alt me-1"></i>Move
+                            </button>
+                            <button class="action-btn" style="background:#e5e7eb;color:#111827" data-action="reserve" data-stock-id="${item.id}" data-product-name="${item.product_name}">
+                                <i class="fas fa-bookmark me-1"></i>Reserve
                             </button>
                         </div>
                     </div>
@@ -798,11 +796,26 @@ class BinDetailsManager {
         
         title.textContent = `${action.charAt(0).toUpperCase() + action.slice(1)} - ${productName}`;
         
+        const currentItem = this.getStockItemById(stockItemId) || {};
+        const availableCalc = Math.max(0, Number(currentItem.on_hand || 0) - Number(currentItem.qty_reserved || 0));
+        const metricsHtml = action === 'reserve' ? `
+            <div class="row">
+                <div class="col-md-12">
+                    <div class="d-flex gap-2 mb-2">
+                        <span class="badge bg-success">On Hand: ${currentItem.on_hand ?? 0}</span>
+                        <span class="badge bg-info">Reserved: ${currentItem.qty_reserved ?? 0}</span>
+                        <span class="badge bg-primary">Available: ${availableCalc}</span>
+                    </div>
+                </div>
+            </div>
+        ` : '';
+        
         const actionLabels = {
             'pick': 'Ship/Pick',
             'receive': 'Receive/Restock',
             'adjust': 'Adjust Stock',
-            'transfer': 'Transfer Stock'
+            'transfer': 'Transfer Stock',
+            'reserve': 'Reserve Stock'
         };
         
         form.innerHTML = `
@@ -820,11 +833,12 @@ class BinDetailsManager {
                     </div>
                 </div>
             </div>
+            ${metricsHtml}
             <div class="row">
                 <div class="col-md-6">
                     <div class="mb-3">
                         <label class="form-label">Quantity</label>
-                        <input type="number" class="form-control" id="transactionQuantity" min="1" value="1">
+                        <input type="number" class="form-control" id="transactionQuantity" min="1" value="1" ${action === 'reserve' ? `max="${availableCalc}"` : ''}>
                     </div>
                 </div>
                 <div class="col-md-6">
@@ -864,12 +878,23 @@ class BinDetailsManager {
     
     async submitTransaction() {
         const quantity = parseInt(document.getElementById('transactionQuantity').value);
-        const transactionType = document.getElementById('transactionType').value;
+        const typeEl = document.getElementById('transactionType');
+        const transactionType = typeEl ? typeEl.value : (this.currentTransaction?.action || 'adjust');
+        const postType = (this.currentTransaction && this.currentTransaction.action === 'reserve') ? 'reserve' : String(transactionType || '').toLowerCase();
         const notes = document.getElementById('transactionNotes').value;
         
         if (!quantity || quantity <= 0) {
             alert('Please enter a valid quantity');
             return;
+        }
+        
+        if (this.currentTransaction && this.currentTransaction.action === 'reserve') {
+            const item = this.getStockItemById(this.currentTransaction.stockItemId);
+            const available = Math.max(0, Number(item?.on_hand || 0) - Number(item?.qty_reserved || 0));
+            if (quantity > available) {
+                alert(`Cannot reserve more than available (${available}).`);
+                return;
+            }
         }
         
         const submitBtn = document.getElementById('submitTransaction');
@@ -886,7 +911,7 @@ class BinDetailsManager {
                 credentials: 'same-origin',
                 body: JSON.stringify({
                     stock_item_id: this.currentTransaction.stockItemId,
-                    type: transactionType,
+                    type: postType,
                     quantity_change: quantity,
                     notes: notes
                 })
@@ -911,19 +936,21 @@ class BinDetailsManager {
     }
     
     showSuccess(data) {
-        // Close transaction modal
+        // Close transaction modal if open
         const transactionModal = bootstrap.Modal.getInstance(document.getElementById('transactionModal'));
-        transactionModal.hide();
+        if (transactionModal) transactionModal.hide();
         
         // Show success modal
+        const qty = data.transaction ? data.transaction.quantity_change : (data.quantity_change || data.quantity || '');
+        const type = data.transaction ? data.transaction.type : (data.type || '');
         document.getElementById('successMessage').textContent = 
-            `Successfully ${data.transaction.type}ed ${data.transaction.quantity_change} units of ${data.stock_item.product_name}`;
+            `Successfully ${type || 'processed'} ${qty} unit(s).`;
         
         const successModal = new bootstrap.Modal(document.getElementById('successModal'));
         successModal.show();
     }
     
-    showMoveStockModal(stockItemId, productName) {
+    async showMoveStockModal(stockItemId, productName) {
         // Get the current stock item to populate the modal
         const stockItem = this.getStockItemById(stockItemId);
         if (!stockItem) {
@@ -938,11 +965,19 @@ class BinDetailsManager {
         document.getElementById('moveCurrentLocation').value = this.currentBin.location_code || 'Not assigned';
         document.getElementById('moveCurrentWarehouse').value = this.currentBin.warehouse_name || 'Not assigned';
         document.getElementById('moveProductName').value = productName;
-        document.getElementById('moveAvailableQuantity').value = stockItem.on_hand;
+        const availableForMove = Math.max(0, Number(stockItem.on_hand || 0) - Number(stockItem.qty_reserved || 0));
+        document.getElementById('moveAvailableQuantity').value = availableForMove;
+        // Reset quantities
+        const qtyInput = document.getElementById('moveQuantity');
+        const rsvInput = document.getElementById('moveReservedQuantity');
+        if (qtyInput) qtyInput.value = '0';
+        if (rsvInput) rsvInput.value = '0';
         
         // Reset the destination section
-        document.getElementById('moveDestinationBinInput').value = '';
-        document.getElementById('moveDestinationBinId').value = '';
+        const destSelect = document.getElementById('moveDestinationBinSelect');
+        const destHidden = document.getElementById('moveDestinationBinId');
+        if (destSelect) destSelect.innerHTML = '<option value="">Select Destination Bin</option>';
+        if (destHidden) destHidden.value = '';
         document.getElementById('moveDestinationLocation').value = '';
         document.getElementById('moveDestinationWarehouse').value = '';
         document.getElementById('moveQuantity').value = '1';
@@ -954,6 +989,31 @@ class BinDetailsManager {
             productName: productName
         };
         
+        // Determine product id for filtering (if available) and initialize toggle
+        const productIdForMove = (stockItem && stockItem.product_id) ? stockItem.product_id : null;
+        const toggleContainer = document.getElementById('moveShowSameProductContainer');
+        const toggle = document.getElementById('moveShowSameProduct');
+        if (productIdForMove) {
+            if (toggleContainer) toggleContainer.style.display = 'block';
+            if (toggle) {
+                toggle.checked = false; // default to empty bins
+                // Re-populate on toggle change
+                toggle.onchange = () => {
+                    this.populateDestinationBins(productIdForMove);
+                };
+            }
+        } else {
+            if (toggleContainer) toggleContainer.style.display = 'none';
+            if (toggle) toggle.checked = false;
+        }
+
+        // Load eligible destination bins (empty or same-product per toggle; require location)
+        try {
+            await this.populateDestinationBins(productIdForMove);
+        } catch (e) {
+            console.error('Failed to populate destination bins:', e);
+        }
+
         modal.show();
     }
     
@@ -965,7 +1025,124 @@ class BinDetailsManager {
         
         return this.currentBin.stock_items.find(item => item.id === stockItemId);
     }
+
+    async populateDestinationBins(productId) {
+        const select = document.getElementById('moveDestinationBinSelect');
+        if (!select) return;
+        const url = new URL('/stock/api/bin-availability', window.location.origin);
+        if (productId) url.searchParams.set('product_id', productId);
+        const res = await fetch(url.toString(), { credentials: 'same-origin' });
+        const data = await res.json();
+        const bins = Array.isArray(data.bins) ? data.bins : [];
+        // Filter: require location, hide other-product occupied; if no product, only empty.
+        // If product present and toggle on, show same-product bins; else show empty bins.
+        const showSameOnly = !!(document.getElementById('moveShowSameProduct') && document.getElementById('moveShowSameProduct').checked);
+        const filtered = bins.filter(b => {
+            if (!b.location_id) return false;
+            if (b.occupied_by_other_product) return false;
+            if (!productId) return !!b.is_empty;
+            return showSameOnly ? !!b.occupied_by_same_product : !!b.is_empty;
+        });
+        // Build options: code - location
+        const options = ['<option value="">Select Destination Bin</option>']
+            .concat(filtered.map(b => {
+                const codeText = (b.code && String(b.code).trim()) ? b.code : `Bin ${b.id}`;
+                const locText = (b.location_code && String(b.location_code).trim()) ? ` - ${b.location_code}` : '';
+                const whText = (b.warehouse_name && String(b.warehouse_name).trim()) ? b.warehouse_name : '';
+                return `<option value="${b.id}" data-location="${b.location_code || ''}" data-warehouse="${whText}">${codeText + locText}</option>`;
+            }));
+        select.innerHTML = options.join('');
+        // Wire change to update hidden id and location & warehouse summary
+        select.onchange = () => {
+            const val = select.value;
+            document.getElementById('moveDestinationBinId').value = val || '';
+            const opt = select.options[select.selectedIndex];
+            const loc = opt ? (opt.getAttribute('data-location') || '') : '';
+            const wh = opt ? (opt.getAttribute('data-warehouse') || '') : '';
+            document.getElementById('moveDestinationLocation').value = loc;
+            document.getElementById('moveDestinationWarehouse').value = wh;
+        };
+    }
     
+    async submitMoveStock() {
+        try {
+            const submitBtn = document.getElementById('submitMoveStock');
+            const destBinId = (document.getElementById('moveDestinationBinId')?.value || '').trim();
+            const qtyStr = document.getElementById('moveQuantity')?.value || '0';
+            const quantity = parseInt(qtyStr, 10) || 0;
+            const rsvStr = document.getElementById('moveReservedQuantity')?.value || '0';
+            const reservedQty = parseInt(rsvStr, 10) || 0;
+            const notes = document.getElementById('moveNotes')?.value || '';
+
+            if (!this.currentMoveTransaction || !this.currentMoveTransaction.stockItemId) {
+                alert('No stock item selected');
+                return;
+            }
+            if (!destBinId) {
+                alert('Please select a destination bin');
+                return;
+            }
+            if (quantity < 0 || reservedQty < 0) {
+                alert('Quantities cannot be negative');
+                return;
+            }
+            if (quantity === 0 && reservedQty === 0) {
+                alert('Enter a quantity or reserved amount to move');
+                return;
+            }
+
+            // Validate against available on current item
+            const stockItem = this.getStockItemById(this.currentMoveTransaction.stockItemId);
+            const available = stockItem ? Math.max(0, Number(stockItem.on_hand || 0) - Number(stockItem.qty_reserved || 0)) : 0;
+            const reservedAvailable = stockItem ? Number(stockItem.qty_reserved || 0) : 0;
+            if (quantity > available) {
+                alert(`Cannot move more than available (${available}).`);
+                return;
+            }
+            if (reservedQty > reservedAvailable) {
+                alert(`Cannot move more reserved than exists (${reservedAvailable}).`);
+                return;
+            }
+
+            const originalHtml = submitBtn ? submitBtn.innerHTML : '';
+            if (submitBtn) { submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i>Moving...'; submitBtn.disabled = true; }
+
+            const res = await fetch('/scanner/api/transaction', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({
+                    type: 'stock_move',
+                    source_stock_id: this.currentMoveTransaction.stockItemId,
+                    dest_bin_id: destBinId,
+                    quantity: quantity,
+                    reserved_quantity: reservedQty,
+                    notes: notes
+                })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) {
+                throw new Error(data.error || 'Failed to move stock');
+            }
+
+            // Close move modal and show success
+            const moveModal = bootstrap.Modal.getInstance(document.getElementById('moveStockModal'));
+            if (moveModal) moveModal.hide();
+            this.cleanupModalBackdrop();
+
+            document.getElementById('successMessage').textContent = `Moved ${quantity} unit(s) to selected bin.`;
+            new bootstrap.Modal(document.getElementById('successModal')).show();
+
+            // Refresh current bin details
+            this.showBinDetails(this.currentBin.code);
+        } catch (e) {
+            alert(e.message || 'Failed to move stock');
+        } finally {
+            const submitBtn = document.getElementById('submitMoveStock');
+            if (submitBtn) { submitBtn.innerHTML = '<i class="fas fa-check me-1"></i>Move Stock'; submitBtn.disabled = false; }
+        }
+    }
+
     setMoveAllStock() {
         // Get the available quantity from the readonly field
         const availableQuantity = document.getElementById('moveAvailableQuantity').value;
@@ -1204,6 +1381,29 @@ class BinDetailsManager {
         } finally {
             btn.innerHTML = original;
             btn.disabled = false;
+        }
+    }
+
+    async showReservePrompt(stockItemId, productName) {
+        const qtyStr = prompt(`Reserve quantity for ${productName}:`, '1');
+        if (qtyStr === null) return;
+        const qty = parseInt(qtyStr, 10);
+        if (!qty || qty <= 0) { alert('Enter a valid quantity'); return; }
+        try {
+            const res = await fetch('/scanner/api/transaction', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ type: 'reserve', stock_item_id: stockItemId, quantity: qty })
+            });
+            const data = await res.json();
+            if (!res.ok || !data.success) { throw new Error(data.error || 'Failed to reserve'); }
+            // Refresh bin data after reservation
+            this.showBinDetails(this.currentBin.code);
+            document.getElementById('successMessage').textContent = `Reserved ${qty} unit(s) of ${productName}`;
+            new bootstrap.Modal(document.getElementById('successModal')).show();
+        } catch (e) {
+            alert(e.message || 'Reservation failed');
         }
     }
 }

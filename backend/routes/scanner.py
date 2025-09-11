@@ -9,7 +9,7 @@ import logging
 
 from backend.services.stock_service import StockService
 from backend.models.product import Product
-from backend.models.warehouse import Bin, Location
+from backend.models.warehouse import Bin, Location, Warehouse
 from backend.models.stock import StockItem
 
 # Configure logging
@@ -120,7 +120,13 @@ def api_get_bin(bin_code):
         
         # Get location and warehouse info
         location = Location.get_by_id(bin_obj.location_id)
-        warehouse = Warehouse.get_by_id(bin_obj.warehouse_id) if bin_obj.warehouse_id else None
+        warehouse = None
+        try:
+            from backend.models.warehouse import Warehouse as _Warehouse
+            if location and getattr(location, 'warehouse_id', None):
+                warehouse = _Warehouse.get_by_id(location.warehouse_id)
+        except Exception:
+            warehouse = None
         
         # Get stock items in this bin
         stock_items = StockItem.get_by_bin(bin_obj.id)
@@ -202,6 +208,7 @@ def api_scanner_transaction():
                 source_stock_id=data.get('source_stock_id'),
                 dest_bin_id=data.get('dest_bin_id'),
                 quantity=data.get('quantity', 0),
+                reserved_quantity=data.get('reserved_quantity', 0),
                 user_id=current_user.id,
                 notes=data.get('notes')
             )
@@ -218,6 +225,36 @@ def api_scanner_transaction():
                     'error': 'Failed to move stock'
                 }), 400
                 
+        elif transaction_type == 'reserve':
+            # Reserve stock on a specific stock item
+            stock_item_id = data.get('stock_item_id')
+            quantity = data.get('quantity') or data.get('quantity_change') or 0
+            try:
+                quantity = int(quantity)
+            except Exception:
+                quantity = 0
+            if not stock_item_id or quantity <= 0:
+                return jsonify({'success': False, 'error': 'stock_item_id and positive quantity are required'}), 400
+            success = StockService.reserve_stock(stock_item_id, quantity, current_user.id)
+            if success:
+                return jsonify({'success': True, 'message': 'Stock reserved', 'transaction': {'type': 'reserve', 'quantity_change': quantity}})
+            return jsonify({'success': False, 'error': 'Failed to reserve stock'}), 400
+
+        elif transaction_type == 'release':
+            # Release reserved stock from a specific stock item
+            stock_item_id = data.get('stock_item_id')
+            quantity = data.get('quantity') or data.get('quantity_change') or 0
+            try:
+                quantity = int(quantity)
+            except Exception:
+                quantity = 0
+            if not stock_item_id or quantity <= 0:
+                return jsonify({'success': False, 'error': 'stock_item_id and positive quantity are required'}), 400
+            success = StockService.release_reserved_stock(stock_item_id, quantity, current_user.id)
+            if success:
+                return jsonify({'success': True, 'message': 'Reserved stock released', 'transaction': {'type': 'release', 'quantity_change': quantity}})
+            return jsonify({'success': False, 'error': 'Failed to release reserved stock'}), 400
+
         elif transaction_type == 'bin_assign':
             # Handle bin assignment
             bin_code = data.get('bin_code')
@@ -417,8 +454,14 @@ def api_available_bins():
         bins_data = []
         for bin_obj in bins:
             location = Location.get_by_id(bin_obj.location_id)
-            warehouse = Warehouse.get_by_id(bin_obj.warehouse_id) if bin_obj.warehouse_id else None
-            
+            warehouse = None
+            try:
+                from backend.models.warehouse import Warehouse as _Warehouse
+                if location and getattr(location, 'warehouse_id', None):
+                    warehouse = _Warehouse.get_by_id(location.warehouse_id)
+            except Exception:
+                warehouse = None
+
             bin_data = bin_obj.to_dict()
             bin_data['location'] = location.to_dict() if location else None
             bin_data['warehouse'] = warehouse.to_dict() if warehouse else None
@@ -493,5 +536,4 @@ def api_move_stock():
         }), 500
 
 
-# Import required models
-        from backend.models.warehouse import Warehouse
+# Import required models (already imported at top)

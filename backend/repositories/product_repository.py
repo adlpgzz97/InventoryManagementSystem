@@ -143,11 +143,11 @@ class ProductRepository(BaseRepository[Product]):
                    si.batch_id,
                    si.expiry_date,
                    si.on_hand,
-                   EXTRACT(DAYS FROM (si.expiry_date - CURRENT_DATE)) as days_until_expiry
+                   (si.expiry_date::date - CURRENT_DATE) as days_until_expiry
             FROM products p
             INNER JOIN stock_items si ON p.id = si.product_id
             WHERE si.expiry_date IS NOT NULL 
-              AND si.expiry_date <= CURRENT_DATE + INTERVAL '%s days'
+              AND si.expiry_date <= CURRENT_DATE + make_interval(days => %s)
               AND si.on_hand > 0
             ORDER BY si.expiry_date ASC
         """

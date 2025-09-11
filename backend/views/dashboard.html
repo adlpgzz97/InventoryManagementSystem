@@ -102,22 +102,7 @@
         </div>
     </div>
     
-    <div class="col-lg-3 col-md-6 mb-3">
-        <div class="card metric-card h-100 border-info">
-            <div class="card-body text-center">
-                <div class="d-flex justify-content-between align-items-center">
-                    <div>
-                        <h3 class="text-info mb-1" id="total-value-metric">N/A</h3>
-                        <p class="text-muted mb-0">Inventory Value</p>
-                    </div>
-                    <i class="fas fa-dollar-sign fa-2x text-info opacity-50"></i>
-                </div>
-                <small class="text-muted">
-                    <i class="fas fa-calculator"></i> Coming soon
-                </small>
-            </div>
-        </div>
-    </div>
+    {# Inventory Value temporarily removed #}
 </div>
 
 <!-- Alerts and Notifications -->
@@ -160,6 +145,43 @@
     </div>
 </div>
 
+<!-- Recent Activity -->
+<div class="row mb-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header d-flex align-items-center justify-content-between">
+                <h5 class="mb-0">
+                    <i class="fas fa-history me-2"></i>Recent Activity
+                </h5>
+                <a href="/transactions" class="btn btn-sm btn-outline-secondary">View All</a>
+            </div>
+            <div class="card-body">
+                {% if recent_activity %}
+                <ul class="list-group list-group-flush">
+                    {% for act in recent_activity[:8] %}
+                    <li class="list-group-item d-flex justify-content-between align-items-center">
+                        <div>
+                            <span class="badge {% if act.type == 'stock_received' %}bg-success{% elif act.type == 'stock_moved' %}bg-info{% else %}bg-secondary{% endif %} me-2">
+                                {{ act.type.replace('_', ' ')|title }}
+                            </span>
+                            {{ act.message }}
+                            <small class="text-muted ms-2">by {{ act.user }}</small>
+                        </div>
+                        <small class="text-muted">{{ act.timestamp }}</small>
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="text-center py-3">
+                    <i class="fas fa-info-circle text-muted fa-2x"></i>
+                    <p class="text-muted mt-2">No recent activity to show</p>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+</div>
 <!-- Charts and Analytics -->
 <div class="row mb-4">
     <!-- Stock Level Distribution -->
